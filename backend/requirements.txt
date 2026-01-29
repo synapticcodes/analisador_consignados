@@ -1,0 +1,11 @@
+# Calculadora de Consignados - Backend Requirements
+# ==============================================
+# Instale com: pip install -r requirements.txt
+# Para desenvolvimento: pip install -e ".[dev]"
+# Para produção: pip install -e ".[prod]"
+# ==============================================
+
+# Este arquivo é gerado automaticamente do pyproject.toml
+# Use: pip install -e . (para instalar do pyproject.toml)
+
+-e .
