@@ -366,6 +366,79 @@ class LoanExtractor:
 }}
 """
 
+    def _build_loan_list_prompt(self, text: str) -> str:
+        """
+        Constrói o prompt para extrair múltiplos contratos de extrato consignado.
+
+        Args:
+            text: Texto completo do documento
+
+        Returns:
+            Prompt formatado
+        """
+        return f"""Você é um extrator de dados financeiros especializado em extratos de empréstimos consignados do INSS.
+
+**TAREFA:** Extraia TODOS os contratos de empréstimo consignado presentes no documento.
+
+**REGRAS CRÍTICAS:**
+1. NUNCA execute somas ou cálculos - apenas EXTRAIA valores que aparecem no documento
+2. Cada valor monetário deve incluir evidência (trecho exato do texto + página)
+3. Se um campo não existir, retorne value=null + alerta explicativo
+4. Retorne JSON válido seguindo o schema exato
+5. Extraia SOMENTE contratos na seção **“EMPRÉSTIMOS BANCÁRIOS — CONTRATOS ATIVOS E SUSPENSOS”**
+6. IGNORE completamente a seção **“CONTRATOS EXCLUÍDOS E ENCERRADOS”**
+7. IGNORE cartões (RMC/RCC) e descontos de cartão
+
+**CAMPOS A EXTRAIR POR CONTRATO:**
+- lenderName: Nome do banco/instituição financeira
+- contractId: Número do contrato (se disponível)
+- parcelaMensal: Valor da parcela mensal
+- totalParcelas: Número total de parcelas
+- parcelasPagas: Parcelas já pagas (se disponível)
+- parcelasRestantes: Parcelas restantes (se disponível)
+- valorTotal: Valor total do contrato
+- taxaJuros: Taxa de juros (se disponível)
+
+**TEXTO DO DOCUMENTO:**
+```
+{text}
+```
+
+**RESPOSTA (JSON):**
+{{
+  "contracts": [
+    {{
+      "lenderName": "Banco Exemplo S.A.",
+      "contractId": "123456789",
+      "parcelaMensal": {{
+        "value": 350.00,
+        "currency": "BRL",
+        "method": "EXTRACTED_FROM_STATEMENT",
+        "evidence": {{
+          "page": 0,
+          "text": "Valor da Parcela: R$ 350,00"
+        }}
+      }},
+      "totalParcelas": 36,
+      "parcelasPagas": null,
+      "parcelasRestantes": null,
+      "valorTotal": {{
+        "value": 10000.00,
+        "currency": "BRL",
+        "method": "EXTRACTED_FROM_STATEMENT",
+        "evidence": {{
+          "page": 0,
+          "text": "Valor Total do Contrato: R$ 10.000,00"
+        }}
+      }},
+      "taxaJuros": "2.5% a.m.",
+      "alerts": []
+    }}
+  ],
+  "alerts": []
+}}
+"""
+
     async def extract(self, text: str) -> LoanContractResult:
         """
         Extrai dados de contrato de empréstimo.
@@ -477,3 +550,182 @@ class LoanExtractor:
                 taxa_juros=None,
                 alerts=[f"Erro ao extrair dados do contrato: {str(e)}"],
             )
+
+    async def extract_many(self, text: str) -> list[LoanContractResult]:
+        """
+        Extrai múltiplos contratos de empréstimo (extratos consignados).
+
+        Args:
+            text: Texto completo do documento
+
+        Returns:
+            Lista de LoanContractResult
+        """
+        prompt = self._build_loan_list_prompt(text)
+
+        messages = [
+            {
+                "role": "system",
+                "content": "Você é um extrator de dados financeiros. Retorne apenas JSON válido.",
+            },
+            {"role": "user", "content": prompt},
+        ]
+
+        async def _request_payload(prompt_text: str) -> str | dict:
+            request_messages = [
+                {
+                    "role": "system",
+                    "content": "Você é um extrator de dados financeiros. Retorne apenas JSON válido.",
+                },
+                {"role": "user", "content": prompt_text},
+            ]
+            return await self.llm_client.chat_completion_with_retry(
+                messages=request_messages, max_retries=1
+            )
+
+        try:
+            response = await _request_payload(prompt)
+
+            def _safe_json_loads(payload: str) -> dict | list:
+                payload = payload.strip()
+                if not payload:
+                    raise ValueError("Resposta vazia do modelo")
+                try:
+                    return json.loads(payload)
+                except Exception:
+                    if "```" in payload:
+                        parts = payload.split("```")
+                        for part in parts:
+                            cleaned = part.strip()
+                            if cleaned.startswith("{") or cleaned.startswith("["):
+                                return json.loads(cleaned)
+                    start = payload.find("{")
+                    end = payload.rfind("}")
+                    if start != -1 and end != -1 and end > start:
+                        return json.loads(payload[start : end + 1])
+                    start = payload.find("[")
+                    end = payload.rfind("]")
+                    if start != -1 and end != -1 and end > start:
+                        return json.loads(payload[start : end + 1])
+                    raise
+
+            if isinstance(response, str):
+                try:
+                    result_payload = _safe_json_loads(response)
+                except Exception:
+                    # Retry com texto truncado e instrução explícita
+                    short_prompt = self._build_loan_list_prompt(text[:8000])
+                    short_prompt += "\n\nResponda SOMENTE com JSON válido, sem comentários."
+                    retry_response = await _request_payload(short_prompt)
+                    if isinstance(retry_response, str):
+                        result_payload = _safe_json_loads(retry_response)
+                    else:
+                        result_payload = retry_response
+            else:
+                result_payload = response
+
+            # Extrair campos
+            def parse_field(field_dict: dict | None) -> ExtractedField:
+                if not field_dict or field_dict.get("value") is None:
+                    return ExtractedField(
+                        value=None, currency=None, method=None, evidence=None
+                    )
+
+                ev = field_dict.get("evidence", {})
+                evidence = (
+                    FieldEvidence(page=ev.get("page", 0), text=ev.get("text", ""))
+                    if ev
+                    else None
+                )
+
+                return ExtractedField(
+                    value=field_dict.get("value"),
+                    currency=field_dict.get("currency", "BRL"),
+                    method=field_dict.get("method"),
+                    evidence=evidence,
+                )
+
+            def parse_int_field(raw_value) -> int | None:
+                if raw_value is None:
+                    return None
+                if isinstance(raw_value, dict):
+                    raw_value = raw_value.get("value")
+                if raw_value is None:
+                    return None
+                if isinstance(raw_value, bool):
+                    return None
+                if isinstance(raw_value, int):
+                    return raw_value
+                if isinstance(raw_value, float):
+                    return int(raw_value) if raw_value.is_integer() else None
+                if isinstance(raw_value, str):
+                    match = re.search(r"-?\d+", raw_value.strip())
+                    return int(match.group(0)) if match else None
+                return None
+
+            contracts_payload: list[dict] = []
+            root_alerts: list[str] = []
+
+            if isinstance(result_payload, dict):
+                root_alerts = result_payload.get("alerts", []) or []
+                if isinstance(result_payload.get("contracts"), list):
+                    contracts_payload = result_payload.get("contracts") or []
+                else:
+                    contracts_payload = [result_payload]
+            elif isinstance(result_payload, list):
+                contracts_payload = result_payload
+
+            results: list[LoanContractResult] = []
+            for item in contracts_payload:
+                if not isinstance(item, dict):
+                    continue
+
+                item_alerts = []
+                if root_alerts:
+                    item_alerts.extend(root_alerts)
+                item_alerts.extend(item.get("alerts", []) or [])
+
+                results.append(
+                    LoanContractResult(
+                        lender_name=item.get("lenderName"),
+                        contract_id=item.get("contractId"),
+                        parcela_mensal=parse_field(item.get("parcelaMensal")),
+                        total_parcelas=parse_int_field(item.get("totalParcelas")),
+                        parcelas_pagas=parse_int_field(item.get("parcelasPagas")),
+                        parcelas_restantes=parse_int_field(item.get("parcelasRestantes")),
+                        valor_total=parse_field(item.get("valorTotal")),
+                        taxa_juros=item.get("taxaJuros"),
+                        alerts=item_alerts,
+                    )
+                )
+
+            if not results:
+                results.append(
+                    LoanContractResult(
+                        lender_name=None,
+                        contract_id=None,
+                        parcela_mensal=ExtractedField(None, None, None, None),
+                        total_parcelas=None,
+                        parcelas_pagas=None,
+                        parcelas_restantes=None,
+                        valor_total=ExtractedField(None, None, None, None),
+                        taxa_juros=None,
+                        alerts=["Nenhum contrato encontrado no extrato."],
+                    )
+                )
+
+            return results
+        except Exception as e:
+            return [
+                LoanContractResult(
+                    lender_name=None,
+                    contract_id=None,
+                    parcela_mensal=ExtractedField(None, None, None, None),
+                    total_parcelas=None,
+                    parcelas_pagas=None,
+                    parcelas_restantes=None,
+                    valor_total=ExtractedField(None, None, None, None),
+                    taxa_juros=None,
+                    alerts=[f"Erro ao extrair contratos: {str(e)}"],
+                )
+            ]

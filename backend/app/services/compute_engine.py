@@ -151,6 +151,16 @@ class ComputeEngine:
                 linha.valor_cent for linha in consolidated.linhas_consignado
             )
             consignado_method = ComputeMethod.SUM_LINES
+        elif consolidated.contratos:
+            # Fallback: soma das parcelas mensais dos contratos
+            contratos_com_parcela = [
+                c for c in consolidated.contratos if c.parcela_mensal.value is not None
+            ]
+            if contratos_com_parcela:
+                consignado_cent = sum(
+                    int(c.parcela_mensal.value * 100) for c in contratos_com_parcela
+                )
+                consignado_method = ComputeMethod.SUM_CONTRACTS
 
         # 3. Calcular dívida total consignada (RF-010 CA-004)
         divida_cent = None

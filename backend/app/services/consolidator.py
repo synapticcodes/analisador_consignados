@@ -270,6 +270,119 @@ class ConsolidatorService:
 
         return best, alerts
 
+    def _is_closed_contract(self, alerts: list[str]) -> bool:
+        """Detecta contratos encerrados/excluídos com base nos alertas do extrator."""
+        for alert in alerts:
+            text = (alert or "").lower()
+            is_contract_specific = "este contrato" in text or "não ativo" in text
+            if is_contract_specific and ("exclu" in text or "encerr" in text):
+                return True
+            if "não ativo" in text:
+                return True
+        return False
+
+    def _float_equal(self, a: float | None, b: float | None, tol: float = 0.01) -> bool:
+        if a is None and b is None:
+            return True
+        if a is None or b is None:
+            return False
+        return abs(a - b) <= tol
+
+    def _is_exact_duplicate(
+        self, a: LoanContractResult, b: LoanContractResult
+    ) -> bool:
+        """Define duplicidade estrita por contractId + valores idênticos."""
+        a_parcela = (
+            float(a.parcela_mensal.value)
+            if a.parcela_mensal and a.parcela_mensal.value is not None
+            else None
+        )
+        b_parcela = (
+            float(b.parcela_mensal.value)
+            if b.parcela_mensal and b.parcela_mensal.value is not None
+            else None
+        )
+        a_total = (
+            float(a.valor_total.value)
+            if a.valor_total and a.valor_total.value is not None
+            else None
+        )
+        b_total = (
+            float(b.valor_total.value)
+            if b.valor_total and b.valor_total.value is not None
+            else None
+        )
+
+        parcelas_ok = (
+            a.total_parcelas == b.total_parcelas
+            if a.total_parcelas is not None or b.total_parcelas is not None
+            else True
+        )
+
+        return (
+            self._float_equal(a_parcela, b_parcela)
+            and self._float_equal(a_total, b_total)
+            and parcelas_ok
+        )
+
+    def _filter_and_dedup_contracts(
+        self, contratos: list[LoanContractResult]
+    ) -> tuple[list[LoanContractResult], list[ConsolidatedAlert]]:
+        """
+        Remove contratos encerrados/excluídos e deduplica por contract_id.
+        """
+        alerts: list[ConsolidatedAlert] = []
+        deduped: dict[str, list[LoanContractResult]] = {}
+        extras: list[LoanContractResult] = []
+
+        for contrato in contratos:
+            if self._is_closed_contract(contrato.alerts or []):
+                alerts.append(
+                    ConsolidatedAlert(
+                        field_name="contratos",
+                        severity="WARN",
+                        message=f"Contrato {contrato.contract_id or 'sem id'} ignorado por estar encerrado/excluído.",
+                    )
+                )
+                continue
+
+            contract_id = (contrato.contract_id or "").strip()
+            if not contract_id:
+                extras.append(contrato)
+                continue
+
+            existing_list = deduped.get(contract_id, [])
+            is_duplicate = False
+            for existing in existing_list:
+                if self._is_exact_duplicate(existing, contrato):
+                    is_duplicate = True
+                    break
+
+            if is_duplicate:
+                alerts.append(
+                    ConsolidatedAlert(
+                        field_name="contratos",
+                        severity="WARN",
+                        message=f"Contrato duplicado {contract_id} ignorado (valores idênticos).",
+                    )
+                )
+                continue
+
+            if existing_list:
+                alerts.append(
+                    ConsolidatedAlert(
+                        field_name="contratos",
+                        severity="WARN",
+                        message=f"Contrato {contract_id} aparece com valores diferentes; mantendo todas as linhas ativas.",
+                    )
+                )
+
+            existing_list.append(contrato)
+            deduped[contract_id] = existing_list
+
+        flattened = [item for group in deduped.values() for item in group]
+        return flattened + extras, alerts
+
     def consolidate(
         self,
         payment_results: list[PaymentExtractionResult],
@@ -382,6 +495,12 @@ class ConsolidatorService:
         )
         alerts.extend(descontos_alerts)
 
+        # 4. Filtrar/deduplicar contratos (extratos INSS)
+        filtered_contracts, contract_alerts = self._filter_and_dedup_contracts(
+            loan_results
+        )
+        alerts.extend(contract_alerts)
+
         return ConsolidatedData(
             competencia_alvo=competencia_alvo,
             salario_bruto=salario_bruto,
@@ -391,6 +510,6 @@ class ConsolidatorService:
             divida_total_consignada=None,  # Será calculado pelo Compute Engine
             parcelas_restantes_total=None,  # Será calculado pelo Compute Engine
             linhas_consignado=linhas_consignado_all,
-            contratos=loan_results,
+            contratos=filtered_contracts,
             alerts=alerts,
         )

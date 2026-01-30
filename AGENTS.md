@@ -140,6 +140,7 @@ parcelas_restantes = sum(parcelas_restantes or total_parcelas - parcelas_pagas)
 - Do sanitize any evidence text exposed in API responses; do not log or store PII in logs.
 - Do keep upload limits consistent across frontend + backend (1-3 PDFs, 10MB each, 25MB total).
 - Do update tests when changing extraction logic, validation rules, or compute formulas.
+- Para testes, sempre que reiniciar o celery-worker, limpar dados e arquivos gerados (DB + storage) para começar do zero.
 
 ## PR / Commit / Release Workflow
 - Branch naming: `feature/`, `fix/`, `docs/`, `refactor/`, `test/`, `chore/`.

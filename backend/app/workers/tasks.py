@@ -149,6 +149,19 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                     return Path(storage_url.replace("local://", "", 1))
                 return Path(storage_url)
 
+            def is_meaningful_loan(result: LoanContractResult) -> bool:
+                if result.parcela_mensal and result.parcela_mensal.value is not None:
+                    return True
+                if result.valor_total and result.valor_total.value is not None:
+                    return True
+                if result.total_parcelas is not None:
+                    return True
+                if result.parcelas_pagas is not None:
+                    return True
+                if result.parcelas_restantes is not None:
+                    return True
+                return False
+
             for i, file in enumerate(files):
                 # Step 1: PDF Extraction (arquivo real)
                 if file.storage_provider != "local" or not file.storage_url:
@@ -190,6 +203,8 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
 
                 # Step 3: Extractors (extrair dados)
                 gate_result = None
+                gate_status = None
+                gate_alerts_payload = []
                 extracted_payload = None
 
                 if router_result.doc_family in [
@@ -204,6 +219,10 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                     gate_result = evidence_gate.validate_payment_extraction(
                         payment_result, document_text=pdf_text
                     )
+                    gate_status = gate_result.gate_status.value
+                    gate_alerts_payload = [
+                        alert.__dict__ for alert in gate_result.alerts
+                    ]
 
                     if gate_result.gate_status.value != "FAILED":
                         payment_results.append(payment_result)
@@ -213,26 +232,108 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                     "LOAN_CONTRACT_GENERIC",
                     "INSS_EXTRATO_CONSIGNADO",
                 ]:
-                    # Loan Extractor
-                    loan_result = await loan_extractor.extract(pdf_text)
-                    extracted_payload = loan_result
+                    gate_results: list[tuple[int, object, bool]] = []
 
-                    # Validar
-                    gate_result = evidence_gate.validate_loan_extraction(loan_result)
+                    if router_result.doc_family == "INSS_EXTRATO_CONSIGNADO":
+                        loan_results_list = await loan_extractor.extract_many(pdf_text)
+                        extracted_payload = loan_results_list
+                        for idx, loan_result in enumerate(loan_results_list):
+                            gate_result = evidence_gate.validate_loan_extraction(
+                                loan_result
+                            )
+                            meaningful = is_meaningful_loan(loan_result)
+                            gate_results.append((idx, gate_result, meaningful))
+                            if meaningful and gate_result.gate_status.value != "FAILED":
+                                loan_results.append(loan_result)
+                            elif not meaningful:
+                                gate_alerts_payload.append(
+                                    {
+                                        "field_name": f"contract[{idx}]",
+                                        "extracted_value": None,
+                                        "reparsed_value": None,
+                                        "evidence_text": "",
+                                        "reason": "Contrato sem valores extraídos",
+                                        "is_critical": False,
+                                        "contract_index": idx,
+                                    }
+                                )
+                    else:
+                        # Loan Extractor (contrato único)
+                        loan_result = await loan_extractor.extract(pdf_text)
+                        extracted_payload = loan_result
 
-                    if gate_result.gate_status.value != "FAILED":
-                        loan_results.append(loan_result)
+                        # Validar
+                        gate_result = evidence_gate.validate_loan_extraction(
+                            loan_result
+                        )
+                        meaningful = is_meaningful_loan(loan_result)
+                        gate_results.append((0, gate_result, meaningful))
+
+                        if meaningful and gate_result.gate_status.value != "FAILED":
+                            loan_results.append(loan_result)
+                        elif not meaningful:
+                            gate_alerts_payload.append(
+                                {
+                                    "field_name": "contract[0]",
+                                    "extracted_value": None,
+                                    "reparsed_value": None,
+                                    "evidence_text": "",
+                                    "reason": "Contrato sem valores extraídos",
+                                    "is_critical": False,
+                                    "contract_index": 0,
+                                }
+                            )
+
+                    # Agregar gate_status e alertas quando há múltiplos contratos
+                    if gate_results:
+                        has_meaningful = any(m for _, _, m in gate_results)
+                        has_passed = any(
+                            gr.gate_status.value == "PASSED" and m
+                            for _, gr, m in gate_results
+                        )
+                        has_warn = any(
+                            gr.gate_status.value == "WARN" and m
+                            for _, gr, m in gate_results
+                        )
+                        if has_passed:
+                            gate_status = "PASSED"
+                        elif has_warn:
+                            gate_status = "WARN"
+                        elif has_meaningful:
+                            gate_status = "FAILED"
+                        else:
+                            gate_status = "FAILED"
+                            gate_alerts_payload.append(
+                                {
+                                    "field_name": "contratos",
+                                    "extracted_value": None,
+                                    "reparsed_value": None,
+                                    "evidence_text": "",
+                                    "reason": "Nenhum contrato válido foi extraído",
+                                    "is_critical": False,
+                                }
+                            )
+
+                        for idx, gr, _ in gate_results:
+                            for alert in gr.alerts:
+                                payload = alert.__dict__.copy()
+                                payload["contract_index"] = idx
+                                gate_alerts_payload.append(payload)
 
                 # Persistir extração para auditoria
                 from dataclasses import asdict, is_dataclass
 
                 extracted_json = None
                 if extracted_payload is not None:
-                    extracted_json = (
-                        asdict(extracted_payload)
-                        if is_dataclass(extracted_payload)
-                        else extracted_payload
-                    )
+                    if is_dataclass(extracted_payload):
+                        extracted_json = asdict(extracted_payload)
+                    elif isinstance(extracted_payload, list):
+                        extracted_json = [
+                            asdict(item) if is_dataclass(item) else item
+                            for item in extracted_payload
+                        ]
+                    else:
+                        extracted_json = extracted_payload
 
                 evidence_json = (
                     [e.__dict__ for e in router_result.evidence]
@@ -252,10 +353,8 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                     extraction_method=extraction_method,
                     extracted_json=extracted_json,
                     evidence_json=evidence_json,
-                    gate_status=gate_result.gate_status.value if gate_result else None,
-                    gate_alerts=[
-                        alert.__dict__ for alert in (gate_result.alerts if gate_result else [])
-                    ],
+                    gate_status=gate_status,
+                    gate_alerts=gate_alerts_payload,
                     processing_time_ms=extraction.extraction_time_ms,
                     extraction_metadata={
                         "file_name": file.original_filename,
