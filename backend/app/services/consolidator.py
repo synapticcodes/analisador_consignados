@@ -464,8 +464,12 @@ class ConsolidatorService:
                     )
                 )
 
-            # Linhas de consignado
-            linhas_consignado_all.extend(result.linhas_consignado)
+            # Linhas de consignado (folha e histórico INSS com competência alvo)
+            if source in (
+                DocumentSource.PAYROLL_SALARY_STATEMENT,
+                DocumentSource.INSS_HISTORICO_CREDITOS,
+            ):
+                linhas_consignado_all.extend(result.linhas_consignado)
 
         # Fallback: renda declarada (RF-009 FA-001)
         if not liquido_candidates and renda_mensal_declarada_cent:

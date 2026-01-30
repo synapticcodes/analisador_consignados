@@ -226,7 +226,14 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
 
                     if gate_result.gate_status.value != "FAILED":
                         payment_results.append(payment_result)
-                        doc_sources[f"payment_{i}"] = DocumentSource.PAYROLL_SALARY_STATEMENT
+                        if router_result.doc_family == "INSS_HISTORICO_CREDITOS":
+                            doc_sources[f"payment_{i}"] = (
+                                DocumentSource.INSS_HISTORICO_CREDITOS
+                            )
+                        else:
+                            doc_sources[f"payment_{i}"] = (
+                                DocumentSource.PAYROLL_SALARY_STATEMENT
+                            )
 
                 elif router_result.doc_family in [
                     "LOAN_CONTRACT_GENERIC",

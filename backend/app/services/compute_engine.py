@@ -19,6 +19,7 @@ class ComputeMethod(str):
     SUM_CONTRACTS = "SUM_CONTRACTS"  # Soma de contratos
     EXTRACTED = "EXTRACTED"  # Extraído diretamente
     USER_DECLARED = "USER_DECLARED"  # Declarado pelo usuário
+    NOT_APPLICABLE = "NOT_APPLICABLE"  # Não aplicável para o documento
 
 
 @dataclass
@@ -161,6 +162,10 @@ class ComputeEngine:
                     int(c.parcela_mensal.value * 100) for c in contratos_com_parcela
                 )
                 consignado_method = ComputeMethod.SUM_CONTRACTS
+        elif liquido_source == DocumentSource.INSS_HISTORICO_CREDITOS:
+            # Histórico de créditos não consolida consignações
+            consignado_cent = 0
+            consignado_method = ComputeMethod.NOT_APPLICABLE
 
         # 3. Calcular dívida total consignada (RF-010 CA-004)
         divida_cent = None

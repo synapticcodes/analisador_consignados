@@ -350,6 +350,20 @@ class EvidenceGate:
 
         # Validar linhas de consignado
         for i, linha in enumerate(result.linhas_consignado):
+            if linha.valor_cent is None:
+                failed_count += 1
+                alerts.append(
+                    ValidationAlert(
+                        field_name=f"linhaConsignado[{i}]",
+                        extracted_value=None,
+                        reparsed_value=None,
+                        evidence_text=linha.evidence.text,
+                        reason="Valor da linha de consignado ausente",
+                        is_critical=False,
+                    )
+                )
+                continue
+
             validated_count += 1
             valor_brl = linha.valor_cent / 100
             reparsed = self._parse_best_match(linha.evidence.text, valor_brl)

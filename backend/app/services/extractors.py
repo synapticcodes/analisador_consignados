@@ -178,6 +178,150 @@ class PaymentExtractor:
 }}
 """
 
+    def _parse_brl_value(self, value_str: str) -> float | None:
+        if not value_str:
+            return None
+        cleaned = value_str.replace(".", "").replace(",", ".")
+        try:
+            return float(cleaned)
+        except ValueError:
+            return None
+
+    def _extract_inss_historico_values(self, text: str) -> dict:
+        """
+        Extrai valores determinísticos para Histórico de Créditos do INSS.
+        """
+        result: dict = {}
+
+        # Salário bruto equivalente: rubrica 101 - VALOR TOTAL DE MR DO PERIODO
+        bruto_matches = list(
+            re.finditer(
+                r"VALOR\s+TOTAL\s+DE\s+MR\s+DO\s+PERIODO\s*R\$\s*([\d\.]+,\d{2})",
+                text,
+                flags=re.IGNORECASE,
+            )
+        )
+        if bruto_matches:
+            bruto_match = bruto_matches[-1]
+            bruto_value = self._parse_brl_value(bruto_match.group(1))
+            if bruto_value is not None:
+                result["salario_bruto"] = {
+                    "value": bruto_value,
+                    "evidence": bruto_match.group(0),
+                }
+
+        # Salário líquido: linha com competência + valor (ex: 12/2025 R$ 836,70)
+        comp_matches = list(
+            re.finditer(
+                r"(\d{2}/\d{4})\s*R\$\s*([\d\.]+,\d{2})",
+                text,
+            )
+        )
+        if comp_matches:
+            def comp_key(match) -> tuple[int, int]:
+                mm, yyyy = match.group(1).split("/")
+                return (int(yyyy), int(mm))
+
+            comp_matches.sort(key=comp_key, reverse=True)
+            best = comp_matches[0]
+            liquido_value = self._parse_brl_value(best.group(2))
+            if liquido_value is not None:
+                result["salario_liquido"] = {
+                    "value": liquido_value,
+                    "evidence": best.group(0),
+                    "competencia": best.group(1),
+                }
+
+        return result
+
+    def _extract_inss_historico_consignado_lines(
+        self, text: str, competencia_mm_yyyy: str
+    ) -> list[ConsignadoLine]:
+        """
+        Extrai linhas de consignado do Histórico de Créditos somente para a competência alvo.
+        Considera apenas rubricas 216, 217 e 268.
+        """
+        if not competencia_mm_yyyy:
+            return []
+
+        raw_lines = [ln.strip() for ln in text.splitlines()]
+        block_lines: list[str] = []
+
+        i = 0
+        while i < len(raw_lines):
+            header = raw_lines[i].upper()
+            if header in ("COMPETÊNCIA", "COMPETENCIA"):
+                comp_line = None
+                j = i + 1
+                while j < len(raw_lines) and j < i + 30:
+                    if re.fullmatch(r"\d{2}/\d{4}", raw_lines[j]):
+                        comp_line = raw_lines[j]
+                        break
+                    j += 1
+                if comp_line == competencia_mm_yyyy:
+                    end = len(raw_lines)
+                    k = i + 1
+                    while k < len(raw_lines):
+                        if raw_lines[k].upper() in ("COMPETÊNCIA", "COMPETENCIA"):
+                            end = k
+                            break
+                        k += 1
+                    block_lines = [ln for ln in raw_lines[i:end] if ln]
+                    break
+            i += 1
+
+        if not block_lines:
+            return []
+
+        lines = block_lines
+        allowed = {"216", "217", "268"}
+        extracted: list[ConsignadoLine] = []
+
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            if re.fullmatch(r"\d{3}", line) and line in allowed:
+                rubrica = line
+                desc = None
+                val_line = None
+
+                j = i + 1
+                while j < len(lines) and not lines[j]:
+                    j += 1
+                if j < len(lines):
+                    desc = lines[j]
+
+                k = j + 1
+                while k < len(lines) and "R$" not in lines[k]:
+                    if re.fullmatch(r"\d{3}", lines[k]):
+                        break
+                    k += 1
+                if k < len(lines) and "R$" in lines[k]:
+                    val_line = lines[k]
+
+                if desc and val_line:
+                    value = self._parse_brl_value(
+                        re.sub(r".*R\$\s*", "", val_line)
+                    )
+                    if value is not None:
+                        extracted.append(
+                            ConsignadoLine(
+                                descricao=desc,
+                                rubrica=rubrica,
+                                valor_cent=int(round(value * 100)),
+                                evidence=FieldEvidence(
+                                    page=0,
+                                    text=f"{rubrica}\n{desc}\n{val_line}",
+                                ),
+                            )
+                        )
+
+                i = k + 1 if val_line else i + 1
+            else:
+                i += 1
+
+        return extracted
+
     async def extract(
         self, text: str, competencia: str | None = None
     ) -> PaymentExtractionResult:
@@ -205,6 +349,9 @@ class PaymentExtractor:
             },
             {"role": "user", "content": prompt},
         ]
+
+        result: PaymentExtractionResult
+        parse_error: Exception | None = None
 
         try:
             # Chamar com retry (RF-006 FE-001)
@@ -255,16 +402,20 @@ class PaymentExtractor:
                 ev = linha_dict.get("evidence", {})
                 evidence = FieldEvidence(page=ev.get("page", 0), text=ev.get("text", ""))
 
+                valor_cent = linha_dict.get("valorCent", 0)
+                if valor_cent is None:
+                    valor_cent = 0
+
                 linhas.append(
                     ConsignadoLine(
                         descricao=linha_dict.get("descricao", ""),
                         rubrica=linha_dict.get("rubrica"),
-                        valor_cent=linha_dict.get("valorCent", 0),
+                        valor_cent=valor_cent,
                         evidence=evidence,
                     )
                 )
 
-            return PaymentExtractionResult(
+            result = PaymentExtractionResult(
                 competencia=result_dict.get("competencia", ""),
                 salario_bruto=parse_field(result_dict.get("salarioBruto")),
                 salario_liquido=parse_field(result_dict.get("salarioLiquido")),
@@ -274,8 +425,9 @@ class PaymentExtractor:
             )
 
         except Exception as e:
+            parse_error = e
             # RF-006 FE-001: Se falhar, retorna resultado vazio com alerta
-            return PaymentExtractionResult(
+            result = PaymentExtractionResult(
                 competencia="",
                 salario_bruto=ExtractedField(None, None, None, None),
                 salario_liquido=ExtractedField(None, None, None, None),
@@ -283,6 +435,45 @@ class PaymentExtractor:
                 linhas_consignado=[],
                 alerts=[f"Erro ao extrair dados: {str(e)}"],
             )
+
+        # Fallback determinístico para Histórico de Créditos INSS
+        if "HISTÓRICO DE CRÉDITOS" in text.upper() or "HISTORICO DE CREDITOS" in text.upper():
+            parsed = self._extract_inss_historico_values(text)
+            if parsed.get("salario_bruto"):
+                result.salario_bruto = ExtractedField(
+                    value=parsed["salario_bruto"]["value"],
+                    currency="BRL",
+                    method="EXTRACTED_FROM_MR_TOTAL",
+                    evidence=FieldEvidence(page=0, text=parsed["salario_bruto"]["evidence"]),
+                )
+            if parsed.get("salario_liquido"):
+                result.salario_liquido = ExtractedField(
+                    value=parsed["salario_liquido"]["value"],
+                    currency="BRL",
+                    method="EXTRACTED_FROM_LIQUIDO",
+                    evidence=FieldEvidence(page=0, text=parsed["salario_liquido"]["evidence"]),
+                )
+                comp = parsed["salario_liquido"].get("competencia")
+                if comp:
+                    # Normaliza MM/YYYY -> YYYY-MM
+                    if "/" in comp:
+                        mm, yyyy = comp.split("/")
+                        result.competencia = f"{yyyy}-{mm}"
+                    else:
+                        result.competencia = comp
+
+                    consignado_lines = self._extract_inss_historico_consignado_lines(
+                        text, comp
+                    )
+                    if consignado_lines:
+                        result.linhas_consignado = consignado_lines
+
+            if parse_error:
+                result.alerts.append(
+                    "Fallback determinístico aplicado após falha de JSON do LLM."
+                )
+
+        return result
 
 
 class LoanExtractor:
@@ -551,6 +742,185 @@ class LoanExtractor:
                 alerts=[f"Erro ao extrair dados do contrato: {str(e)}"],
             )
 
+    def _redact_preview(self, text: str, limit: int = 500) -> str:
+        """Reduz risco de PII em previews de resposta do LLM."""
+        if not text:
+            return ""
+        redacted = re.sub(r"\d", "X", text)
+        return redacted[:limit]
+
+    def _parse_currency_values(self, text: str) -> list[tuple[float, str]]:
+        """
+        Extrai valores monetários em BRL permitindo quebra de linha entre inteiro e centavos.
+        Retorna lista de tuplas (valor_float, evidência_texto).
+        """
+        pattern = re.compile(r"R\$\s*([\d\.]+)\s*,\s*(\d{2})")
+        values: list[tuple[float, str]] = []
+        for match in pattern.finditer(text):
+            whole = match.group(1).replace(".", "")
+            cents = match.group(2)
+            value = float(f"{whole}.{cents}")
+            values.append((value, match.group(0)))
+        return values
+
+    def _extract_contracts_from_text(
+        self, text: str, fallback_alert: str | None
+    ) -> list[LoanContractResult]:
+        """
+        Fallback determinístico para extratos INSS quando o LLM falha.
+        Extrai contratos da seção 'EMPRÉSTIMOS BANCÁRIOS — CONTRATOS ATIVOS E SUSPENSOS'.
+        """
+        text_upper = text.upper()
+        start_match = re.search(r"EMPR[ÉE]STIMOS\s+BANC[ÁA]RIOS", text_upper)
+        if not start_match:
+            return []
+
+        start_idx = start_match.start()
+        end_idx = None
+        end_patterns = [
+            r"CONTRATOS\s+EXCLU",
+            r"CONTRATOS\s+ENCERR",
+            r"CART[ÃA]O",
+            r"DESCONTOS\s+DE\s+CART",
+            r"RESUMO",
+        ]
+        for pat in end_patterns:
+            m = re.search(pat, text_upper[start_idx:])
+            if m:
+                pos = start_idx + m.start()
+                if end_idx is None or pos < end_idx:
+                    end_idx = pos
+
+        chunk = text[start_idx:end_idx] if end_idx else text[start_idx:]
+        lines = [ln.strip() for ln in chunk.splitlines() if ln.strip()]
+
+        contracts: list[LoanContractResult] = []
+        current: dict[str, object] = {}
+        digit_buffer = ""
+        bank_name_parts: list[str] = []
+        collecting_bank_name = False
+        block_lines: list[str] = []
+
+        def finalize_contract() -> None:
+            nonlocal current, digit_buffer, bank_name_parts, block_lines, collecting_bank_name
+            if not current and not digit_buffer:
+                return
+            contract_id = current.get("contract_id")
+            if not contract_id and digit_buffer:
+                current["contract_id"] = digit_buffer
+            if bank_name_parts:
+                current["lender_name"] = " ".join(bank_name_parts)
+
+            block_text = "\n".join(block_lines)
+            currency_vals = self._parse_currency_values(block_text)
+            parcela_val = currency_vals[0] if len(currency_vals) > 0 else None
+            total_val = currency_vals[1] if len(currency_vals) > 1 else None
+
+            alerts = ["Extração fallback por regex (LLM inválido ou sem JSON)."]
+            if fallback_alert:
+                alerts.append(fallback_alert)
+
+            parcela_field = ExtractedField(
+                value=parcela_val[0] if parcela_val else None,
+                currency="BRL" if parcela_val else None,
+                method="EXTRACTED_FROM_STATEMENT_REGEX" if parcela_val else None,
+                evidence=FieldEvidence(page=0, text=parcela_val[1]) if parcela_val else None,
+            )
+            total_field = ExtractedField(
+                value=total_val[0] if total_val else None,
+                currency="BRL" if total_val else None,
+                method="EXTRACTED_FROM_STATEMENT_REGEX" if total_val else None,
+                evidence=FieldEvidence(page=0, text=total_val[1]) if total_val else None,
+            )
+
+            contracts.append(
+                LoanContractResult(
+                    lender_name=current.get("lender_name"),
+                    contract_id=current.get("contract_id"),
+                    parcela_mensal=parcela_field,
+                    total_parcelas=current.get("total_parcelas"),
+                    parcelas_pagas=None,
+                    parcelas_restantes=None,
+                    valor_total=total_field,
+                    taxa_juros=None,
+                    alerts=alerts,
+                )
+            )
+
+            current = {}
+            digit_buffer = ""
+            bank_name_parts = []
+            block_lines = []
+            collecting_bank_name = False
+
+        for line in lines:
+            line_clean = line.strip()
+            if not line_clean:
+                continue
+            line_upper = line_clean.upper()
+
+            bank_line = re.search(r"\b\d{3}\s*-\s*.+", line_clean)
+            if bank_line:
+                if current or digit_buffer:
+                    finalize_contract()
+                current = {"lender_name": None, "contract_id": None, "total_parcelas": None}
+                if digit_buffer:
+                    current["contract_id"] = digit_buffer
+                    digit_buffer = ""
+                bank_name_parts = [line_clean]
+                collecting_bank_name = True
+                block_lines.append(line_clean)
+                continue
+
+            if collecting_bank_name:
+                if (
+                    re.fullmatch(r"\d{2}/\d{4}", line_clean)
+                    or re.fullmatch(r"\d+", line_clean)
+                    or "R$" in line_clean
+                    or any(
+                        kw in line_upper
+                        for kw in ["ATIVO", "AVERB", "MIGRADO", "REFINAN", "SUSPENS"]
+                    )
+                ):
+                    collecting_bank_name = False
+                else:
+                    bank_name_parts.append(line_clean)
+                    block_lines.append(line_clean)
+                    continue
+
+            if re.fullmatch(r"\d{3,}", line_clean):
+                if len(line_clean) >= 4:
+                    digit_buffer += line_clean
+                elif len(line_clean) == 3 and len(digit_buffer) >= 12:
+                    digit_buffer += line_clean
+                block_lines.append(line_clean)
+                continue
+
+            if re.fullmatch(r"\d{2}/\d{4}", line_clean):
+                if "inicio" not in current:
+                    current["inicio"] = line_clean
+                elif "fim" not in current:
+                    current["fim"] = line_clean
+                block_lines.append(line_clean)
+                continue
+
+            if re.fullmatch(r"\d{2,3}", line_clean) and current is not None:
+                if current.get("total_parcelas") is None:
+                    current["total_parcelas"] = int(line_clean)
+                block_lines.append(line_clean)
+                continue
+
+            if "ATIVO" in line_upper or "SUSPENS" in line_upper:
+                block_lines.append(line_clean)
+                finalize_contract()
+                continue
+
+            if current:
+                block_lines.append(line_clean)
+
+        finalize_contract()
+        return contracts
+
     async def extract_many(self, text: str) -> list[LoanContractResult]:
         """
         Extrai múltiplos contratos de empréstimo (extratos consignados).
@@ -609,16 +979,28 @@ class LoanExtractor:
                         return json.loads(payload[start : end + 1])
                     raise
 
+            fallback_alert = None
             if isinstance(response, str):
                 try:
                     result_payload = _safe_json_loads(response)
                 except Exception:
+                    fallback_alert = (
+                        "Resposta do LLM inválida. Preview: "
+                        + self._redact_preview(response)
+                    )
                     # Retry com texto truncado e instrução explícita
                     short_prompt = self._build_loan_list_prompt(text[:8000])
                     short_prompt += "\n\nResponda SOMENTE com JSON válido, sem comentários."
                     retry_response = await _request_payload(short_prompt)
                     if isinstance(retry_response, str):
-                        result_payload = _safe_json_loads(retry_response)
+                        try:
+                            result_payload = _safe_json_loads(retry_response)
+                        except Exception:
+                            fallback_alert = (
+                                "Resposta do LLM inválida após retry. Preview: "
+                                + self._redact_preview(retry_response)
+                            )
+                            result_payload = None
                     else:
                         result_payload = retry_response
             else:
@@ -674,6 +1056,8 @@ class LoanExtractor:
                     contracts_payload = [result_payload]
             elif isinstance(result_payload, list):
                 contracts_payload = result_payload
+            elif result_payload is None:
+                contracts_payload = []
 
             results: list[LoanContractResult] = []
             for item in contracts_payload:
@@ -700,6 +1084,12 @@ class LoanExtractor:
                 )
 
             if not results:
+                fallback_results = self._extract_contracts_from_text(
+                    text, fallback_alert
+                )
+                if fallback_results:
+                    return fallback_results
+
                 results.append(
                     LoanContractResult(
                         lender_name=None,
@@ -716,6 +1106,12 @@ class LoanExtractor:
 
             return results
         except Exception as e:
+            fallback_results = self._extract_contracts_from_text(
+                text, f"Erro ao extrair contratos: {str(e)}"
+            )
+            if fallback_results:
+                return fallback_results
+
             return [
                 LoanContractResult(
                     lender_name=None,
