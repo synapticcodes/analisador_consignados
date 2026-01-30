@@ -264,6 +264,23 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                                         "contract_index": idx,
                                     }
                                 )
+
+                        # Extrair valores do benefício do extrato (base de cálculo / total comprometido)
+                        beneficio_result = (
+                            payment_extractor._extract_inss_extrato_beneficio_values(
+                                pdf_text, router_result.competencias_detectadas
+                            )
+                        )
+                        beneficio_gate = evidence_gate.validate_payment_extraction(
+                            beneficio_result, document_text=pdf_text
+                        )
+                        for alert in beneficio_gate.alerts:
+                            gate_alerts_payload.append(alert.__dict__)
+                        if beneficio_gate.gate_status.value != "FAILED":
+                            payment_results.append(beneficio_result)
+                            doc_sources[f"payment_{i}"] = (
+                                DocumentSource.INSS_EXTRATO_CONSIGNADO
+                            )
                     else:
                         # Loan Extractor (contrato único)
                         loan_result = await loan_extractor.extract(pdf_text)

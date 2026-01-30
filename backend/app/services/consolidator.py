@@ -82,14 +82,17 @@ class ConsolidatorService:
         "salario_bruto": {
             DocumentSource.PAYROLL_SALARY_STATEMENT: SourcePriority.HIGHEST,
             DocumentSource.INSS_HISTORICO_CREDITOS: SourcePriority.HIGH,
+            DocumentSource.INSS_EXTRATO_CONSIGNADO: SourcePriority.MEDIUM,
         },
         "salario_liquido": {
             DocumentSource.INSS_HISTORICO_CREDITOS: SourcePriority.HIGHEST,
             DocumentSource.PAYROLL_SALARY_STATEMENT: SourcePriority.HIGH,
+            DocumentSource.INSS_EXTRATO_CONSIGNADO: SourcePriority.MEDIUM,
             DocumentSource.DECLARADO: SourcePriority.LOW,
         },
         "total_descontos": {
             DocumentSource.PAYROLL_SALARY_STATEMENT: SourcePriority.HIGHEST,
+            DocumentSource.INSS_EXTRATO_CONSIGNADO: SourcePriority.MEDIUM,
         },
         "consignado_mensal": {
             DocumentSource.PAYROLL_SALARY_STATEMENT: SourcePriority.HIGHEST,

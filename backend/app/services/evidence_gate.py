@@ -228,7 +228,10 @@ class EvidenceGate:
         Em documentos financeiros é comum haver códigos (ex: 101, 216) na mesma linha
         do valor. Para evitar falso negativo, escolhe o número mais próximo do valor extraído.
         """
-        values = self.parser.parse_all(text or "")
+        cleaned = text or ""
+        # Corrige quebra de linha entre dígitos decimais (ex: "1.660,2\\n8" -> "1.660,28")
+        cleaned = re.sub(r"(\\d,[0-9])\\s+(\\d)", r"\\1\\2", cleaned)
+        values = self.parser.parse_all(cleaned)
         if not values:
             return None
         if extracted_value is None:
@@ -275,6 +278,27 @@ class EvidenceGate:
         def evidence_in_doc(ev_text: str) -> bool:
             return self._normalize_text(ev_text) in doc_norm
 
+        def find_value_in_doc(field: ExtractedField) -> str | None:
+            if field.value is None:
+                return None
+            try:
+                value = float(field.value)
+            except (TypeError, ValueError):
+                return None
+            us = f"{value:,.2f}"
+            br = us.replace(",", "X").replace(".", ",").replace("X", ".")
+            br_no_sep = br.replace(".", "")
+            candidates = [
+                br,
+                br_no_sep,
+                f"R$ {br}",
+                f"R$ {br_no_sep}",
+            ]
+            for cand in candidates:
+                if self._normalize_text(cand) in doc_norm:
+                    return cand
+            return None
+
         # Regras simples de contexto para evitar confundir margem consignável com salário líquido
         forbidden_liquido = ["margem", "consignavel", "consign"]
 
@@ -290,6 +314,10 @@ class EvidenceGate:
 
             ev_text = field.evidence.text
             if not evidence_in_doc(ev_text):
+                candidate = find_value_in_doc(field)
+                if candidate:
+                    field.evidence.text = candidate
+                    continue
                 drop_field(field_name, field, "Evidência não encontrada no texto do documento")
                 continue
 

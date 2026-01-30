@@ -234,6 +234,168 @@ class PaymentExtractor:
 
         return result
 
+    def _pick_latest_competencia(self, raw_values: list[str]) -> str | None:
+        if not raw_values:
+            return None
+
+        def to_key(raw: str) -> tuple[int, int] | None:
+            raw = raw.strip()
+            if re.fullmatch(r"\d{4}-\d{2}", raw):
+                yyyy, mm = raw.split("-")
+                return (int(yyyy), int(mm))
+            if re.fullmatch(r"\d{2}/\d{4}", raw):
+                mm, yyyy = raw.split("/")
+                return (int(yyyy), int(mm))
+            return None
+
+        candidates = []
+        for raw in raw_values:
+            key = to_key(raw)
+            if key:
+                candidates.append((key, raw))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        key, raw = candidates[0]
+        return f"{key[0]:04d}-{key[1]:02d}"
+
+    def _extract_inss_extrato_beneficio_values(
+        self, text: str, competencias_detectadas: list[str] | None = None
+    ) -> PaymentExtractionResult:
+        """
+        Extrai valores de benefício do Extrato de Empréstimo Consignado (INSS).
+        Usa Base de Cálculo como salário bruto e Total Comprometido como descontos.
+        """
+        base_value = None
+        base_evidence = None
+        total_value = None
+        total_evidence = None
+
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        for i, line in enumerate(lines):
+            if line.upper() in ("VALORES DO BENEFÍCIO", "VALORES DO BENEFICIO"):
+                labels: list[str] = []
+                values: list[str] = []
+
+                j = i + 1
+                while j < len(lines):
+                    if re.match(r"R\$\s*[\d\.]+,\d{2}", lines[j]):
+                        break
+                    labels.append(lines[j])
+                    j += 1
+
+                while j < len(lines):
+                    if re.match(r"R\$\s*[\d\.]+,\d{2}", lines[j]):
+                        values.append(lines[j])
+                        j += 1
+                        continue
+                    if values:
+                        break
+                    j += 1
+
+                def normalize_label(value: str) -> str:
+                    normalized = value.upper()
+                    for src, dst in (
+                        ("Á", "A"),
+                        ("À", "A"),
+                        ("Â", "A"),
+                        ("Ã", "A"),
+                        ("É", "E"),
+                        ("Ê", "E"),
+                        ("Í", "I"),
+                        ("Ó", "O"),
+                        ("Ô", "O"),
+                        ("Õ", "O"),
+                        ("Ú", "U"),
+                        ("Ç", "C"),
+                    ):
+                        normalized = normalized.replace(src, dst)
+                    return normalized
+
+                for idx, label in enumerate(labels):
+                    if idx >= len(values):
+                        break
+                    label_norm = normalize_label(label)
+                    if base_value is None and "BASE" in label_norm and "CALCULO" in label_norm:
+                        match = re.search(r"R\$\s*([\d\.]+,\d{2})", values[idx])
+                        if match:
+                            base_value = match.group(1)
+                            base_evidence = f"{label}\\n{values[idx]}"
+                    if total_value is None and "TOTAL" in label_norm and "COMPROMETIDO" in label_norm:
+                        match = re.search(r"R\$\s*([\d\.]+,\d{2})", values[idx])
+                        if match:
+                            total_value = match.group(1)
+                            total_evidence = f"{label}\\n{values[idx]}"
+
+                # Se encontrou ao menos um dos campos, parar
+                if base_value or total_value:
+                    break
+
+        if base_value is None or total_value is None:
+            base_match = re.search(
+                r"BASE\s+DE\s+C[ÁA]LCULO\\s*R\$\s*([\d\.]+,\d{2})",
+                text,
+                flags=re.IGNORECASE,
+            )
+            total_match = re.search(
+                r"TOTAL\s+COMPROMETIDO\\s*R\$\s*([\d\.]+,\d{2})",
+                text,
+                flags=re.IGNORECASE,
+            )
+            if base_value is None and base_match:
+                base_value = base_match.group(1)
+                base_evidence = base_match.group(0)
+            if total_value is None and total_match:
+                total_value = total_match.group(1)
+                total_evidence = total_match.group(0)
+
+        competencia = None
+        if competencias_detectadas:
+            competencia = self._pick_latest_competencia(competencias_detectadas)
+        if not competencia:
+            comp_matches = re.findall(r"\b\\d{2}/\\d{4}\b", text)
+            competencia = self._pick_latest_competencia(comp_matches)
+        if not competencia:
+            competencia = ""
+
+        salario_bruto = ExtractedField(None, None, None, None)
+        total_descontos = ExtractedField(None, None, None, None)
+
+        if base_value:
+            value = self._parse_brl_value(base_value)
+            if value is not None:
+                salario_bruto = ExtractedField(
+                    value=value,
+                    currency="BRL",
+                    method="EXTRACTED_FROM_BENEFICIO_BASE",
+                    evidence=FieldEvidence(page=0, text=base_evidence or ""),
+                )
+
+        if total_value:
+            value = self._parse_brl_value(total_value)
+            if value is not None:
+                total_descontos = ExtractedField(
+                    value=value,
+                    currency="BRL",
+                    method="EXTRACTED_FROM_TOTAL_COMPROMETIDO",
+                    evidence=FieldEvidence(page=0, text=total_evidence or ""),
+                )
+
+        alerts = []
+        if salario_bruto.value is None and total_descontos.value is None:
+            alerts.append(
+                "Valores do benefício não encontrados no extrato (base de cálculo / total comprometido)."
+            )
+
+        return PaymentExtractionResult(
+            competencia=competencia,
+            salario_bruto=salario_bruto,
+            salario_liquido=ExtractedField(None, None, None, None),
+            total_descontos=total_descontos,
+            linhas_consignado=[],
+            alerts=alerts,
+        )
+
     def _extract_inss_historico_consignado_lines(
         self, text: str, competencia_mm_yyyy: str
     ) -> list[ConsignadoLine]:
@@ -754,14 +916,168 @@ class LoanExtractor:
         Extrai valores monetários em BRL permitindo quebra de linha entre inteiro e centavos.
         Retorna lista de tuplas (valor_float, evidência_texto).
         """
+        cleaned = re.sub(r"(\d,\d)\s+(\d)", r"\1\2", text or "")
         pattern = re.compile(r"R\$\s*([\d\.]+)\s*,\s*(\d{2})")
         values: list[tuple[float, str]] = []
-        for match in pattern.finditer(text):
+        for match in pattern.finditer(cleaned):
             whole = match.group(1).replace(".", "")
             cents = match.group(2)
             value = float(f"{whole}.{cents}")
             values.append((value, match.group(0)))
         return values
+
+    def _fill_missing_contract_totals(
+        self, text: str, contracts: list[LoanContractResult]
+    ) -> None:
+        for contract in contracts:
+            if contract.valor_total and contract.valor_total.value is not None:
+                continue
+            if not contract.contract_id:
+                continue
+            idx = text.find(contract.contract_id)
+            if idx == -1:
+                continue
+            window = text[idx : idx + 800]
+            currency_vals = self._parse_currency_values(window)
+            if not currency_vals:
+                continue
+            chosen = None
+            if len(currency_vals) >= 2:
+                chosen = currency_vals[1]
+            elif len(currency_vals) == 1 and contract.parcela_mensal.value is None:
+                chosen = currency_vals[0]
+
+            if chosen:
+                contract.valor_total = ExtractedField(
+                    value=chosen[0],
+                    currency="BRL",
+                    method="EXTRACTED_FROM_STATEMENT_REGEX",
+                    evidence=FieldEvidence(page=0, text=chosen[1]),
+                )
+                contract.alerts.append(
+                    "Valor total preenchido por fallback regex a partir do texto."
+                )
+
+    def _merge_contracts(
+        self,
+        primary: list[LoanContractResult],
+        fallback: list[LoanContractResult],
+    ) -> list[LoanContractResult]:
+        by_id: dict[str, LoanContractResult] = {
+            c.contract_id: c for c in primary if c.contract_id
+        }
+        by_parcela: dict[float, LoanContractResult] = {}
+        for c in primary:
+            if c.parcela_mensal.value is not None and c.valor_total.value is None:
+                by_parcela[round(float(c.parcela_mensal.value), 2)] = c
+        merged = list(primary)
+
+        for fb in fallback:
+            if fb.contract_id and fb.contract_id in by_id:
+                base = by_id[fb.contract_id]
+                if base.lender_name is None and fb.lender_name:
+                    base.lender_name = fb.lender_name
+                if base.parcela_mensal.value is None and fb.parcela_mensal.value is not None:
+                    base.parcela_mensal = fb.parcela_mensal
+                if base.valor_total.value is None and fb.valor_total.value is not None:
+                    base.valor_total = fb.valor_total
+                if base.total_parcelas is None and fb.total_parcelas is not None:
+                    base.total_parcelas = fb.total_parcelas
+                if base.parcelas_pagas is None and fb.parcelas_pagas is not None:
+                    base.parcelas_pagas = fb.parcelas_pagas
+                if base.parcelas_restantes is None and fb.parcelas_restantes is not None:
+                    base.parcelas_restantes = fb.parcelas_restantes
+                if fb.alerts:
+                    base.alerts.extend(fb.alerts)
+                continue
+
+            if fb.parcela_mensal.value is not None:
+                key = round(float(fb.parcela_mensal.value), 2)
+                target = by_parcela.get(key)
+                if target:
+                    if target.valor_total.value is None and fb.valor_total.value is not None:
+                        target.valor_total = fb.valor_total
+                        target.alerts.append(
+                            "Valor total preenchido por fallback regex (match por parcela)."
+                        )
+                    if target.total_parcelas is None and fb.total_parcelas is not None:
+                        target.total_parcelas = fb.total_parcelas
+                    if fb.alerts:
+                        target.alerts.extend(fb.alerts)
+                    continue
+
+        merged.append(fb)
+
+        # Remover possíveis IDs concatenados que contêm outros IDs válidos
+        ids = [c.contract_id for c in merged if c.contract_id]
+        cleaned: list[LoanContractResult] = []
+
+        def same_values(a: LoanContractResult, b: LoanContractResult) -> bool:
+            def norm(v):
+                return round(float(v), 2) if v is not None else None
+            return (
+                norm(a.parcela_mensal.value) == norm(b.parcela_mensal.value)
+                and norm(a.valor_total.value) == norm(b.valor_total.value)
+                and (
+                    a.total_parcelas == b.total_parcelas
+                    or (a.total_parcelas is None and b.total_parcelas is None)
+                )
+            )
+
+        for contract in merged:
+            cid = contract.contract_id
+            if not cid:
+                cleaned.append(contract)
+                continue
+            matches = [other for other in ids if other != cid and other in cid and len(other) >= 6]
+            if matches:
+                # Remove IDs concatenados quando os valores são idênticos ao contrato base
+                base = next((c for c in merged if c.contract_id in matches), None)
+                if base and same_values(base, contract):
+                    continue
+            cleaned.append(contract)
+
+        return cleaned
+
+    def _extract_card_reserved_contracts(self, text: str) -> list[LoanContractResult]:
+        """
+        Extrai valores de reserva de cartão consignado (RCC/RMC) do extrato.
+        Retorna como pseudo-contratos para compor consignado mensal.
+        """
+        results: list[LoanContractResult] = []
+
+        pattern = re.compile(
+            r"VALOR\s+LIMITE\s+DE\s+CART[ÃA]O\s+RESERVADO\s+ATUALIZADO(.*?)(?:VALORES\s+POR\s+MODALIDADE|\Z)",
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        for match in pattern.finditer(text):
+            block = match.group(0)
+            values = self._parse_currency_values(block)
+            if not values:
+                continue
+            value, evidence = min(values, key=lambda item: item[0])
+            results.append(
+                LoanContractResult(
+                    lender_name=None,
+                    contract_id=None,
+                    parcela_mensal=ExtractedField(
+                        value=value,
+                        currency="BRL",
+                        method="EXTRACTED_FROM_CARD_RESERVED",
+                        evidence=FieldEvidence(page=0, text=evidence),
+                    ),
+                    total_parcelas=None,
+                    parcelas_pagas=None,
+                    parcelas_restantes=None,
+                    valor_total=ExtractedField(None, None, None, None),
+                    taxa_juros=None,
+                    alerts=[
+                        "Valor de cartão consignado (RCC/RMC) incluído no consignado mensal."
+                    ],
+                )
+            )
+
+        return results
 
     def _extract_contracts_from_text(
         self, text: str, fallback_alert: str | None
@@ -1103,6 +1419,18 @@ class LoanExtractor:
                         alerts=["Nenhum contrato encontrado no extrato."],
                     )
                 )
+
+            fallback_results = self._extract_contracts_from_text(
+                text, fallback_alert or "Fallback regex para completar contratos."
+            )
+            if fallback_results:
+                results = self._merge_contracts(results, fallback_results)
+
+            self._fill_missing_contract_totals(text, results)
+
+            card_contracts = self._extract_card_reserved_contracts(text)
+            if card_contracts:
+                results.extend(card_contracts)
 
             return results
         except Exception as e:

@@ -142,6 +142,29 @@ class ComputeEngine:
         elif descontos_cent is not None:
             descontos_method = ComputeMethod.EXTRACTED
 
+        # 1b. Calcular salario_liquido_cent quando base e descontos existem
+        if liquido_cent is None and bruto_cent is not None and descontos_cent is not None:
+            liquido_cent = bruto_cent - descontos_cent
+            if liquido_cent < 0:
+                alerts.append(
+                    ConsolidatedAlert(
+                        field_name="salario_liquido",
+                        severity="ERROR",
+                        message="Salário líquido calculado negativo (base < descontos)",
+                    )
+                )
+                liquido_cent = None
+            else:
+                if liquido_source is None:
+                    liquido_source = bruto_source
+                alerts.append(
+                    ConsolidatedAlert(
+                        field_name="salario_liquido",
+                        severity="WARN",
+                        message="Salário líquido calculado por diferença (bruto - descontos).",
+                    )
+                )
+
         # 2. Calcular consignado_mensal_cent (RF-010 CA-003)
         consignado_cent = None
         consignado_method = None
