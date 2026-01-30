@@ -63,6 +63,8 @@ class ConsolidatedData:
     """Dados consolidados de todos os documentos."""
 
     competencia_alvo: str  # Formato YYYY-MM
+    renda_competencia: str | None
+    perfil_dados: str | None
     salario_bruto: ConsolidatedValue | None
     salario_liquido: ConsolidatedValue | None
     total_descontos: ConsolidatedValue | None
@@ -82,17 +84,14 @@ class ConsolidatorService:
         "salario_bruto": {
             DocumentSource.PAYROLL_SALARY_STATEMENT: SourcePriority.HIGHEST,
             DocumentSource.INSS_HISTORICO_CREDITOS: SourcePriority.HIGH,
-            DocumentSource.INSS_EXTRATO_CONSIGNADO: SourcePriority.MEDIUM,
         },
         "salario_liquido": {
             DocumentSource.INSS_HISTORICO_CREDITOS: SourcePriority.HIGHEST,
             DocumentSource.PAYROLL_SALARY_STATEMENT: SourcePriority.HIGH,
-            DocumentSource.INSS_EXTRATO_CONSIGNADO: SourcePriority.MEDIUM,
             DocumentSource.DECLARADO: SourcePriority.LOW,
         },
         "total_descontos": {
             DocumentSource.PAYROLL_SALARY_STATEMENT: SourcePriority.HIGHEST,
-            DocumentSource.INSS_EXTRATO_CONSIGNADO: SourcePriority.MEDIUM,
         },
         "consignado_mensal": {
             DocumentSource.PAYROLL_SALARY_STATEMENT: SourcePriority.HIGHEST,
@@ -409,12 +408,69 @@ class ConsolidatorService:
         """
         alerts = []
 
-        # 1. Selecionar competência alvo (RF-008)
-        competencia_alvo, comp_alert = self.select_target_competencia(
-            payment_results
-        )
-        if comp_alert:
-            alerts.append(comp_alert)
+        # 1. Separar resultados por fonte
+        payment_entries = []
+        for i, result in enumerate(payment_results):
+            doc_id = f"payment_{i}"
+            source = doc_sources.get(doc_id, DocumentSource.PAYROLL_SALARY_STATEMENT)
+            payment_entries.append((doc_id, source, result))
+
+        payroll_entries = [
+            entry
+            for entry in payment_entries
+            if entry[1] == DocumentSource.PAYROLL_SALARY_STATEMENT
+        ]
+        historico_entries = [
+            entry
+            for entry in payment_entries
+            if entry[1] == DocumentSource.INSS_HISTORICO_CREDITOS
+        ]
+        extrato_entries = [
+            entry
+            for entry in payment_entries
+            if entry[1] == DocumentSource.INSS_EXTRATO_CONSIGNADO
+        ]
+
+        has_payroll = bool(payroll_entries)
+        has_extrato = bool(loan_results) or bool(extrato_entries)
+        has_historico = bool(historico_entries)
+
+        if has_payroll and has_extrato:
+            perfil_dados = "PAYROLL_AND_EXTRATO"
+        elif has_payroll:
+            perfil_dados = "PAYROLL_ONLY"
+        elif has_extrato:
+            perfil_dados = "EXTRATO_ONLY"
+        elif has_historico:
+            perfil_dados = "HISTORICO_ONLY"
+        else:
+            perfil_dados = "UNKNOWN"
+
+        # 2. Selecionar competência da renda (mais recente do contracheque; fallback histórico)
+        renda_entries = payroll_entries or historico_entries
+        renda_competencia = None
+        if renda_entries:
+            renda_competencia, comp_alert = self.select_target_competencia(
+                [entry[2] for entry in renda_entries]
+            )
+            if comp_alert:
+                alerts.append(comp_alert)
+
+        # 3. Competência alvo geral (apenas metadata)
+        competencia_alvo = renda_competencia
+        if not competencia_alvo:
+            if extrato_entries:
+                competencia_alvo, comp_alert = self.select_target_competencia(
+                    [entry[2] for entry in extrato_entries]
+                )
+                if comp_alert:
+                    alerts.append(comp_alert)
+            else:
+                competencia_alvo, comp_alert = self.select_target_competencia(
+                    payment_results
+                )
+                if comp_alert:
+                    alerts.append(comp_alert)
 
         # 2. Coletar candidatos para cada campo (RF-009 CA-001)
         bruto_candidates = []
@@ -422,14 +478,11 @@ class ConsolidatorService:
         descontos_candidates = []
         linhas_consignado_all = []
 
-        for i, result in enumerate(payment_results):
-            # Filtrar apenas resultados da competência alvo
-            result_comp = self._normalize_competencia(result.competencia or "")
-            if result_comp != competencia_alvo:
-                continue
-
-            doc_id = f"payment_{i}"
-            source = doc_sources.get(doc_id, DocumentSource.PAYROLL_SALARY_STATEMENT)
+        for doc_id, source, result in renda_entries:
+            if renda_competencia:
+                result_comp = self._normalize_competencia(result.competencia or "")
+                if result_comp != renda_competencia:
+                    continue
 
             # Salário bruto
             if result.salario_bruto.value is not None:
@@ -467,7 +520,7 @@ class ConsolidatorService:
                     )
                 )
 
-            # Linhas de consignado (folha e histórico INSS com competência alvo)
+            # Linhas de consignado da renda (folha/histórico)
             if source in (
                 DocumentSource.PAYROLL_SALARY_STATEMENT,
                 DocumentSource.INSS_HISTORICO_CREDITOS,
@@ -510,6 +563,8 @@ class ConsolidatorService:
 
         return ConsolidatedData(
             competencia_alvo=competencia_alvo,
+            renda_competencia=renda_competencia,
+            perfil_dados=perfil_dados,
             salario_bruto=salario_bruto,
             salario_liquido=salario_liquido,
             total_descontos=total_descontos,

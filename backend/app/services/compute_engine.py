@@ -7,6 +7,7 @@ Baseado no PRD seção RF-010.
 """
 
 from dataclasses import dataclass
+import re
 
 from app.services.consolidator import ConsolidatedAlert, ConsolidatedData, ConsolidatedValue, DocumentSource
 
@@ -121,9 +122,19 @@ class ComputeEngine:
             else None
         )
 
+        # Perfil de dados (regras financeiras)
+        perfil_dados = consolidated.perfil_dados or ""
+
         # 1. Calcular total_descontos_cent (RF-010 CA-002)
         descontos_method = None
-        if descontos_cent is None and bruto_cent is not None and liquido_cent is not None:
+        if perfil_dados == "EXTRATO_ONLY":
+            bruto_cent = 0
+            liquido_cent = 0
+            descontos_cent = 0
+            descontos_method = ComputeMethod.NOT_APPLICABLE
+            bruto_source = "NOT_APPLICABLE"
+            liquido_source = "NOT_APPLICABLE"
+        elif descontos_cent is None and bruto_cent is not None and liquido_cent is not None:
             # Calcular por diferença
             descontos_cent = bruto_cent - liquido_cent
             descontos_method = ComputeMethod.DIFFERENCE
@@ -143,7 +154,12 @@ class ComputeEngine:
             descontos_method = ComputeMethod.EXTRACTED
 
         # 1b. Calcular salario_liquido_cent quando base e descontos existem
-        if liquido_cent is None and bruto_cent is not None and descontos_cent is not None:
+        if (
+            liquido_cent is None
+            and bruto_cent is not None
+            and descontos_cent is not None
+            and perfil_dados != "EXTRATO_ONLY"
+        ):
             liquido_cent = bruto_cent - descontos_cent
             if liquido_cent < 0:
                 alerts.append(
@@ -169,21 +185,61 @@ class ComputeEngine:
         consignado_cent = None
         consignado_method = None
 
+        def _normalize_text(value: str | None) -> str:
+            if not value:
+                return ""
+            return re.sub(r"[^a-z0-9]", "", value.lower())
+
+        def _is_duplicate_consignado(line: object, contract: object) -> bool:
+            try:
+                line_value = getattr(line, "valor_cent", None)
+                contract_value = getattr(contract.parcela_mensal, "value", None)
+                if line_value is None or contract_value is None:
+                    return False
+                contract_cent = int(round(float(contract_value) * 100))
+                if abs(contract_cent - int(line_value)) > 1:
+                    return False
+                line_desc = _normalize_text(getattr(line, "descricao", ""))
+                lender = _normalize_text(getattr(contract, "lender_name", "") or "")
+                if contract.contract_id and contract.contract_id in (
+                    getattr(line.evidence, "text", "") or ""
+                ):
+                    return True
+                if lender and line_desc:
+                    tokens = [t for t in lender.split() if len(t) >= 4]
+                    if any(token in line_desc for token in tokens):
+                        return True
+            except Exception:
+                return False
+            return False
+
+        line_sum = 0
         if consolidated.linhas_consignado:
-            # Soma de linhas (método preferencial)
-            consignado_cent = sum(
+            line_sum = sum(
                 linha.valor_cent for linha in consolidated.linhas_consignado
             )
-            consignado_method = ComputeMethod.SUM_LINES
-        elif consolidated.contratos:
-            # Fallback: soma das parcelas mensais dos contratos
-            contratos_com_parcela = [
-                c for c in consolidated.contratos if c.parcela_mensal.value is not None
-            ]
-            if contratos_com_parcela:
-                consignado_cent = sum(
-                    int(c.parcela_mensal.value * 100) for c in contratos_com_parcela
+
+        contract_sum = 0
+        if consolidated.contratos:
+            for contrato in consolidated.contratos:
+                if contrato.parcela_mensal.value is None:
+                    continue
+                if consolidated.linhas_consignado and any(
+                    _is_duplicate_consignado(linha, contrato)
+                    for linha in consolidated.linhas_consignado
+                ):
+                    continue
+                contract_sum += int(round(contrato.parcela_mensal.value * 100))
+
+        if line_sum or contract_sum:
+            consignado_cent = line_sum + contract_sum
+            if line_sum and contract_sum:
+                consignado_method = (
+                    f"{ComputeMethod.SUM_LINES}+{ComputeMethod.SUM_CONTRACTS}"
                 )
+            elif line_sum:
+                consignado_method = ComputeMethod.SUM_LINES
+            else:
                 consignado_method = ComputeMethod.SUM_CONTRACTS
         elif liquido_source == DocumentSource.INSS_HISTORICO_CREDITOS:
             # Histórico de créditos não consolida consignações
@@ -202,7 +258,7 @@ class ComputeEngine:
 
             if contratos_com_valor:
                 divida_cent = sum(
-                    int(c.valor_total.value * 100) for c in contratos_com_valor
+                    int(round(c.valor_total.value * 100)) for c in contratos_com_valor
                 )
                 divida_method = ComputeMethod.SUM_CONTRACTS
 

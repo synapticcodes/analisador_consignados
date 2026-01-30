@@ -1046,36 +1046,95 @@ class LoanExtractor:
         """
         results: list[LoanContractResult] = []
 
-        pattern = re.compile(
-            r"VALOR\s+LIMITE\s+DE\s+CART[ÃA]O\s+RESERVADO\s+ATUALIZADO(.*?)(?:VALORES\s+POR\s+MODALIDADE|\Z)",
-            flags=re.IGNORECASE | re.DOTALL,
+        # 1) Preferir seção "Margem para Empréstimo/Cartão e Resumo Financeiro"
+        header_match = re.search(
+            r"Margem\s+para\s+Empr[ée]stimo/Cart[ãa]o\s+e\s+Resumo\s+Financeiro",
+            text,
+            flags=re.IGNORECASE,
         )
-        for match in pattern.finditer(text):
-            block = match.group(0)
-            values = self._parse_currency_values(block)
-            if not values:
-                continue
-            value, evidence = min(values, key=lambda item: item[0])
-            results.append(
-                LoanContractResult(
-                    lender_name=None,
-                    contract_id=None,
-                    parcela_mensal=ExtractedField(
-                        value=value,
-                        currency="BRL",
-                        method="EXTRACTED_FROM_CARD_RESERVED",
-                        evidence=FieldEvidence(page=0, text=evidence),
-                    ),
-                    total_parcelas=None,
-                    parcelas_pagas=None,
-                    parcelas_restantes=None,
-                    valor_total=ExtractedField(None, None, None, None),
-                    taxa_juros=None,
-                    alerts=[
-                        "Valor de cartão consignado (RCC/RMC) incluído no consignado mensal."
-                    ],
-                )
+        if header_match:
+            start_idx = header_match.start()
+            end_idx = None
+            end_match = re.search(
+                r"VALORES\s+POR\s+MODALIDADE|EMPR[ÉE]STIMOS\s+BANC[ÁA]RIOS",
+                text[start_idx:],
+                flags=re.IGNORECASE,
             )
+            if end_match:
+                end_idx = start_idx + end_match.start()
+            block = text[start_idx:end_idx] if end_idx else text[start_idx:]
+            normalized = re.sub(r"\\s+", " ", block)
+            card_match = re.search(
+                r"\bRCC\b\s*R\$\s*([\d\.]+,\d{2})",
+                normalized,
+                flags=re.IGNORECASE,
+            )
+            if not card_match:
+                card_match = re.search(
+                    r"\bRMC\b\s*R\$\s*([\d\.]+,\d{2})",
+                    normalized,
+                    flags=re.IGNORECASE,
+                )
+            if card_match:
+                values = self._parse_currency_values(f"R$ {card_match.group(1)}")
+                if values:
+                    value, evidence = values[0]
+                    results.append(
+                        LoanContractResult(
+                            lender_name=None,
+                            contract_id=None,
+                            parcela_mensal=ExtractedField(
+                                value=value,
+                                currency="BRL",
+                                method="EXTRACTED_FROM_MARGIN_SUMMARY",
+                                evidence=FieldEvidence(
+                                    page=0,
+                                    text=f"{card_match.group(0)}",
+                                ),
+                            ),
+                            total_parcelas=None,
+                            parcelas_pagas=None,
+                            parcelas_restantes=None,
+                            valor_total=ExtractedField(None, None, None, None),
+                            taxa_juros=None,
+                            alerts=[
+                                "Valor de cartão consignado (RCC/RMC) incluído no consignado mensal."
+                            ],
+                        )
+                    )
+
+        # 2) Fallback para seção "VALOR LIMITE DE CARTÃO RESERVADO ATUALIZADO"
+        if not results:
+            pattern = re.compile(
+                r"VALOR\s+LIMITE\s+DE\s+CART[ÃA]O\s+RESERVADO\s+ATUALIZADO(.*?)(?:VALORES\s+POR\s+MODALIDADE|\Z)",
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+            for match in pattern.finditer(text):
+                block = match.group(0)
+                values = self._parse_currency_values(block)
+                if not values:
+                    continue
+                value, evidence = min(values, key=lambda item: item[0])
+                results.append(
+                    LoanContractResult(
+                        lender_name=None,
+                        contract_id=None,
+                        parcela_mensal=ExtractedField(
+                            value=value,
+                            currency="BRL",
+                            method="EXTRACTED_FROM_CARD_RESERVED",
+                            evidence=FieldEvidence(page=0, text=evidence),
+                        ),
+                        total_parcelas=None,
+                        parcelas_pagas=None,
+                        parcelas_restantes=None,
+                        valor_total=ExtractedField(None, None, None, None),
+                        taxa_juros=None,
+                        alerts=[
+                            "Valor de cartão consignado (RCC/RMC) incluído no consignado mensal."
+                        ],
+                    )
+                )
 
         return results
 
