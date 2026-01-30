@@ -31,7 +31,7 @@ class LLMClient:
             api_key: OpenAI API key (usa settings se não fornecido)
             model: Modelo a usar (usa settings se não fornecido)
             temperature: Temperature para sampling (0-2)
-            max_tokens: Máximo de tokens na resposta
+            max_tokens: Máximo de tokens na resposta (mapeado para max_completion_tokens)
         """
         self.api_key = api_key or settings.openai_api_key
         self.model = model or settings.openai_model
@@ -54,7 +54,7 @@ class LLMClient:
             messages: Lista de mensagens do chat
             response_format: Pydantic model para structured output (opcional)
             temperature: Override do temperature padrão
-            max_tokens: Override do max_tokens padrão
+            max_tokens: Override do max_tokens padrão (mapeado para max_completion_tokens)
 
         Returns:
             String com resposta ou dict se response_format for fornecido
@@ -69,9 +69,9 @@ class LLMClient:
                 "temperature": temperature if temperature is not None else self.temperature,
             }
 
-            # Add max_tokens if specified
+            # Add max_completion_tokens if specified (API atual)
             if max_tokens or self.max_tokens:
-                completion_kwargs["max_tokens"] = max_tokens or self.max_tokens
+                completion_kwargs["max_completion_tokens"] = max_tokens or self.max_tokens
 
             # Add response_format if specified (Structured Outputs)
             if response_format:

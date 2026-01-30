@@ -8,6 +8,8 @@ Baseado no PRD seção RF-005.
 
 from dataclasses import dataclass
 from enum import Enum
+import json
+import re
 
 from app.services.llm_client import LLMClient
 
@@ -154,6 +156,93 @@ class RouterService:
             {"role": "user", "content": prompt},
         ]
 
+        def _safe_json_loads(payload: str) -> dict:
+            try:
+                return json.loads(payload)
+            except Exception:
+                # Tenta extrair o primeiro objeto JSON válido dentro do texto
+                start = payload.find("{")
+                end = payload.rfind("}")
+                if start != -1 and end != -1 and end > start:
+                    return json.loads(payload[start : end + 1])
+                raise
+
+        def _find_evidence_lines(text_blob: str, patterns: list[str], limit: int = 2) -> list[RouterEvidence]:
+            evidences: list[RouterEvidence] = []
+            lines = text_blob.splitlines()
+            for line in lines:
+                line_upper = line.upper()
+                if any(pat in line_upper for pat in patterns):
+                    evidences.append(RouterEvidence(page=0, text=line.strip()[:200]))
+                if len(evidences) >= limit:
+                    break
+            # Se não achou linhas suficientes, pega as primeiras linhas não vazias
+            if len(evidences) < limit:
+                for line in lines:
+                    if line.strip():
+                        evidences.append(RouterEvidence(page=0, text=line.strip()[:200]))
+                    if len(evidences) >= limit:
+                        break
+            return evidences[:limit]
+
+        def _heuristic_classification(text_blob: str) -> RouterResult:
+            text_upper = text_blob.upper()
+            # Heurísticas simples baseadas em palavras-chave
+            if "FOLHA DE PAGAMENTO" in text_upper or "PROVENTOS" in text_upper and "DESCONTOS" in text_upper:
+                return RouterResult(
+                    doc_family=DocumentFamily.PAYROLL_SALARY_STATEMENT.value,
+                    confidence=0.6,
+                    capabilities=[
+                        DocumentCapability.PROVIDES_GROSS_NET_DEDUCTIONS.value,
+                        DocumentCapability.PROVIDES_CONSIGNADO_LINES.value,
+                    ],
+                    competencias_detectadas=[],
+                    evidence=_find_evidence_lines(text_blob, ["FOLHA", "PROVENTOS", "DESCONTOS"]),
+                )
+
+            if "HISTÓRICO DE CRÉDITOS" in text_upper or "HISTORICO DE CREDITOS" in text_upper:
+                return RouterResult(
+                    doc_family=DocumentFamily.INSS_HISTORICO_CREDITOS.value,
+                    confidence=0.6,
+                    capabilities=[DocumentCapability.PROVIDES_GROSS_NET_DEDUCTIONS.value],
+                    competencias_detectadas=[],
+                    evidence=_find_evidence_lines(text_blob, ["HIST", "CRÉDITOS", "CREDITOS"]),
+                )
+
+            if (
+                "EXTRATO CONSIGNADO" in text_upper
+                or "CONTRATOS ATIVOS" in text_upper
+                or "MARGEM CONSIGN" in text_upper
+                or "VALORES POR MODALIDADE" in text_upper
+            ):
+                return RouterResult(
+                    doc_family=DocumentFamily.INSS_EXTRATO_CONSIGNADO.value,
+                    confidence=0.6,
+                    capabilities=[
+                        DocumentCapability.PROVIDES_CONSIGNADO_LINES.value,
+                        DocumentCapability.PROVIDES_LOAN_CONTRACTS.value,
+                    ],
+                    competencias_detectadas=[],
+                    evidence=_find_evidence_lines(text_blob, ["EXTRATO", "CONTRATOS", "MARGEM", "MODALIDADE"]),
+                )
+
+            if "CONTRATO" in text_upper and ("EMPRÉSTIMO" in text_upper or "EMPRESTIMO" in text_upper):
+                return RouterResult(
+                    doc_family=DocumentFamily.LOAN_CONTRACT_GENERIC.value,
+                    confidence=0.6,
+                    capabilities=[DocumentCapability.PROVIDES_LOAN_CONTRACTS.value],
+                    competencias_detectadas=[],
+                    evidence=_find_evidence_lines(text_blob, ["CONTRATO", "EMPRÉSTIMO", "EMPRESTIMO"]),
+                )
+
+            return RouterResult(
+                doc_family=DocumentFamily.OTHER_UNKNOWN.value,
+                confidence=0.3,
+                capabilities=[],
+                competencias_detectadas=[],
+                evidence=_find_evidence_lines(text_blob, ["DOCUMENTO"]),
+            )
+
         try:
             # Chamar com retry (RF-005 FE-001)
             response = await self.llm_client.chat_completion_with_retry(
@@ -162,9 +251,7 @@ class RouterService:
 
             # Parse response
             if isinstance(response, str):
-                import json
-
-                result_dict = json.loads(response)
+                result_dict = _safe_json_loads(response)
             else:
                 result_dict = response
 
@@ -178,29 +265,25 @@ class RouterService:
             # Extrair evidence
             evidence_list = []
             for ev in result_dict.get("evidence", []):
-                evidence_list.append(RouterEvidence(page=ev.get("page", 0), text=ev["text"]))
+                evidence_list.append(
+                    RouterEvidence(page=ev.get("page", 0), text=ev.get("text", "")[:200])
+                )
+
+            # Se confiança baixa, aplicar heurística
+            if confidence < 0.5 or doc_family == DocumentFamily.OTHER_UNKNOWN.value:
+                return _heuristic_classification(text)
 
             return RouterResult(
                 doc_family=doc_family,
                 confidence=confidence,
                 capabilities=result_dict.get("capabilities", []),
                 competencias_detectadas=result_dict.get("competenciasDetectadas", []),
-                evidence=evidence_list,
+                evidence=evidence_list if evidence_list else _find_evidence_lines(text, []),
             )
 
         except Exception as e:
-            # RF-005 FE-001: Se falhar, retorna confidence=0
-            return RouterResult(
-                doc_family="OTHER_UNKNOWN",
-                confidence=0.0,
-                capabilities=[],
-                competencias_detectadas=[],
-                evidence=[
-                    RouterEvidence(
-                        page=0, text=f"Erro ao classificar documento: {str(e)}"
-                    )
-                ],
-            )
+            # RF-005 FE-001: Se falhar, tenta heurística determinística
+            return _heuristic_classification(text)
 
     def to_dict(self, result: RouterResult) -> dict:
         """

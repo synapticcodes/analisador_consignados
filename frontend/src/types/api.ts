@@ -30,6 +30,32 @@ export interface AnalysisJobResponse {
   error_message: string | null
 }
 
+export interface EvidenceApi {
+  file_id: string
+  page: number
+  text: string
+}
+
+export interface MonetaryFieldApi {
+  value: number | null
+  currency: string
+  source: string | null
+  evidence: EvidenceApi | null
+  method: string | null
+}
+
+export interface FinalResultResponseApi {
+  job_id: string
+  competencia_alvo: string
+  salario_bruto: MonetaryFieldApi
+  salario_liquido: MonetaryFieldApi
+  total_descontos: MonetaryFieldApi
+  consignado_mensal: MonetaryFieldApi
+  divida_total_consignada: MonetaryFieldApi
+  parcelas_restantes_total: number | null
+  alerts: string[] | null
+}
+
 export interface FinalResultResponse {
   job_id: string
   competencia_alvo: string
@@ -43,14 +69,14 @@ export interface FinalResultResponse {
   parcelas_restantes_total: number | null
 
   // Provenance & Alertas
-  provenance: Record<string, any> | null
-  alerts: Alert[] | null
+  provenance?: Record<string, any> | null
+  alerts?: Alert[] | null
 
   // Metadata
-  calculation_methods: Record<string, string> | null
-  confidence_scores: Record<string, number> | null
+  calculation_methods?: Record<string, string> | null
+  confidence_scores?: Record<string, number> | null
 
-  created_at: string
+  created_at?: string
 }
 
 export interface Alert {

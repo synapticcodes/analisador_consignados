@@ -10,6 +10,8 @@ Baseado no PRD seção RF-006.
 """
 
 from dataclasses import dataclass
+import json
+import re
 
 from app.services.llm_client import LLMClient
 
@@ -211,10 +213,18 @@ class PaymentExtractor:
             )
 
             # Parse response
-            if isinstance(response, str):
-                import json
+            def _safe_json_loads(payload: str) -> dict:
+                try:
+                    return json.loads(payload)
+                except Exception:
+                    start = payload.find("{")
+                    end = payload.rfind("}")
+                    if start != -1 and end != -1 and end > start:
+                        return json.loads(payload[start : end + 1])
+                    raise
 
-                result_dict = json.loads(response)
+            if isinstance(response, str):
+                result_dict = _safe_json_loads(response)
             else:
                 result_dict = response
 
@@ -388,10 +398,18 @@ class LoanExtractor:
             )
 
             # Parse response
-            if isinstance(response, str):
-                import json
+            def _safe_json_loads(payload: str) -> dict:
+                try:
+                    return json.loads(payload)
+                except Exception:
+                    start = payload.find("{")
+                    end = payload.rfind("}")
+                    if start != -1 and end != -1 and end > start:
+                        return json.loads(payload[start : end + 1])
+                    raise
 
-                result_dict = json.loads(response)
+            if isinstance(response, str):
+                result_dict = _safe_json_loads(response)
             else:
                 result_dict = response
 
@@ -416,13 +434,31 @@ class LoanExtractor:
                     evidence=evidence,
                 )
 
+            def parse_int_field(raw_value) -> int | None:
+                if raw_value is None:
+                    return None
+                if isinstance(raw_value, dict):
+                    raw_value = raw_value.get("value")
+                if raw_value is None:
+                    return None
+                if isinstance(raw_value, bool):
+                    return None
+                if isinstance(raw_value, int):
+                    return raw_value
+                if isinstance(raw_value, float):
+                    return int(raw_value) if raw_value.is_integer() else None
+                if isinstance(raw_value, str):
+                    match = re.search(r"-?\d+", raw_value.strip())
+                    return int(match.group(0)) if match else None
+                return None
+
             return LoanContractResult(
                 lender_name=result_dict.get("lenderName"),
                 contract_id=result_dict.get("contractId"),
                 parcela_mensal=parse_field(result_dict.get("parcelaMensal")),
-                total_parcelas=result_dict.get("totalParcelas"),
-                parcelas_pagas=result_dict.get("parcelasPagas"),
-                parcelas_restantes=result_dict.get("parcelasRestantes"),
+                total_parcelas=parse_int_field(result_dict.get("totalParcelas")),
+                parcelas_pagas=parse_int_field(result_dict.get("parcelasPagas")),
+                parcelas_restantes=parse_int_field(result_dict.get("parcelasRestantes")),
                 valor_total=parse_field(result_dict.get("valorTotal")),
                 taxa_juros=result_dict.get("taxaJuros"),
                 alerts=result_dict.get("alerts", []),

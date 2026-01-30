@@ -184,8 +184,8 @@ class EvidenceGate:
                 is_critical=is_critical,
             )
 
-        # Re-parsear evidência
-        reparsed_value = self.parser.parse(field.evidence.text)
+        # Re-parsear evidência (escolhe o valor mais próximo do extraído)
+        reparsed_value = self._parse_best_match(field.evidence.text, field.value)
 
         # Se não conseguiu parsear, rejeitar (FE-001)
         if reparsed_value is None:
@@ -215,8 +215,97 @@ class EvidenceGate:
         # Validação passou
         return None
 
+    def _normalize_text(self, text: str) -> str:
+        """Normaliza texto para comparação determinística."""
+        return re.sub(r"\s+", " ", text or "").strip().lower()
+
+    def _parse_best_match(
+        self, text: str, extracted_value: float | str | None
+    ) -> float | None:
+        """
+        Seleciona o valor numérico mais provável dentro da evidência.
+
+        Em documentos financeiros é comum haver códigos (ex: 101, 216) na mesma linha
+        do valor. Para evitar falso negativo, escolhe o número mais próximo do valor extraído.
+        """
+        values = self.parser.parse_all(text or "")
+        if not values:
+            return None
+        if extracted_value is None:
+            return values[0]
+        try:
+            target = float(extracted_value)
+        except (TypeError, ValueError):
+            return values[0]
+        return min(values, key=lambda v: abs(v - target))
+
+    def _sanitize_payment_fields(
+        self, result: PaymentExtractionResult, document_text: str | None
+    ) -> tuple[list[ValidationAlert], int]:
+        """
+        Remove campos com evidência inconsistente (não encontrada no texto ou contexto inválido).
+
+        Retorna alertas e quantidade de falhas registradas.
+        """
+        if not document_text:
+            return [], 0
+
+        alerts: list[ValidationAlert] = []
+        failed_count = 0
+        doc_norm = self._normalize_text(document_text)
+
+        def drop_field(field_name: str, field: ExtractedField, reason: str) -> None:
+            nonlocal failed_count
+            alerts.append(
+                ValidationAlert(
+                    field_name=field_name,
+                    extracted_value=float(field.value) if field.value else None,
+                    reparsed_value=None,
+                    evidence_text=field.evidence.text if field.evidence else "",
+                    reason=reason,
+                    is_critical=False,
+                )
+            )
+            failed_count += 1
+            field.value = None
+            field.currency = None
+            field.method = None
+            field.evidence = None
+
+        def evidence_in_doc(ev_text: str) -> bool:
+            return self._normalize_text(ev_text) in doc_norm
+
+        # Regras simples de contexto para evitar confundir margem consignável com salário líquido
+        forbidden_liquido = ["margem", "consignavel", "consign"]
+
+        candidates = [
+            ("salarioBruto", result.salario_bruto),
+            ("salarioLiquido", result.salario_liquido),
+            ("totalDescontos", result.total_descontos),
+        ]
+
+        for field_name, field in candidates:
+            if field.value is None or not field.evidence or not field.evidence.text:
+                continue
+
+            ev_text = field.evidence.text
+            if not evidence_in_doc(ev_text):
+                drop_field(field_name, field, "Evidência não encontrada no texto do documento")
+                continue
+
+            if field_name == "salarioLiquido":
+                ev_upper = ev_text.upper()
+                if any(k.upper() in ev_upper for k in forbidden_liquido):
+                    drop_field(
+                        field_name,
+                        field,
+                        "Evidência indica margem consignável, não salário líquido",
+                    )
+
+        return alerts, failed_count
+
     def validate_payment_extraction(
-        self, result: PaymentExtractionResult
+        self, result: PaymentExtractionResult, document_text: str | None = None
     ) -> GateResult:
         """
         Valida extração de folha de pagamento.
@@ -230,6 +319,14 @@ class EvidenceGate:
         alerts: list[ValidationAlert] = []
         validated_count = 0
         failed_count = 0
+
+        # Sanitização determinística (evita evidências inválidas)
+        sanitize_alerts, sanitize_failed = self._sanitize_payment_fields(
+            result, document_text
+        )
+        if sanitize_alerts:
+            alerts.extend(sanitize_alerts)
+            failed_count += sanitize_failed
 
         # Validar campos críticos (RN-002)
         critical_fields = [
@@ -255,7 +352,7 @@ class EvidenceGate:
         for i, linha in enumerate(result.linhas_consignado):
             validated_count += 1
             valor_brl = linha.valor_cent / 100
-            reparsed = self.parser.parse(linha.evidence.text)
+            reparsed = self._parse_best_match(linha.evidence.text, valor_brl)
 
             if reparsed is None:
                 failed_count += 1

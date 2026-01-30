@@ -18,6 +18,15 @@ try:
 except ImportError:
     AIOBOTO3_AVAILABLE = False
 
+try:
+    import pytesseract
+    from PIL import Image
+    import fitz
+
+    LOCAL_OCR_AVAILABLE = True
+except Exception:
+    LOCAL_OCR_AVAILABLE = False
+
 
 @dataclass
 class OCRResult:
@@ -48,18 +57,23 @@ class OCRService:
             aws_region: AWS Region
 
         Raises:
-            ImportError: Se aioboto3 não estiver instalado
+            ImportError: Se nenhum backend de OCR estiver disponível
         """
-        if not AIOBOTO3_AVAILABLE:
-            raise ImportError(
-                "aioboto3 não está instalado. "
-                "Instale com: pip install aioboto3"
-            )
 
         self.aws_access_key_id = aws_access_key_id
         self.aws_secret_access_key = aws_secret_access_key
         self.aws_region = aws_region
         self._session = None
+        self._use_textract = bool(
+            AIOBOTO3_AVAILABLE and self.aws_access_key_id and self.aws_secret_access_key
+        )
+        self._use_local = bool(LOCAL_OCR_AVAILABLE)
+
+        if not self._use_textract and not self._use_local:
+            raise ImportError(
+                "Nenhum backend de OCR disponível. "
+                "Instale aioboto3 e/ou pytesseract + pillow, ou configure AWS."
+            )
 
     def is_configured(self) -> bool:
         """
@@ -68,7 +82,7 @@ class OCRService:
         Returns:
             True se configurado, False caso contrário
         """
-        return bool(self.aws_access_key_id and self.aws_secret_access_key)
+        return bool(self._use_textract or self._use_local)
 
     async def extract_text(self, pdf_bytes: bytes) -> OCRResult:
         """
@@ -87,55 +101,96 @@ class OCRService:
         import time
 
         if not self.is_configured():
-            raise ValueError(
-                "OCR Service não configurado. "
-                "Forneça AWS_ACCESS_KEY_ID e AWS_SECRET_ACCESS_KEY"
-            )
+            raise ValueError("OCR Service não configurado")
 
         start_time = time.time()
 
         try:
-            # Criar sessão boto3 async
-            session = aioboto3.Session(
-                aws_access_key_id=self.aws_access_key_id,
-                aws_secret_access_key=self.aws_secret_access_key,
-                region_name=self.aws_region,
+            if self._use_textract:
+                # Criar sessão boto3 async
+                session = aioboto3.Session(
+                    aws_access_key_id=self.aws_access_key_id,
+                    aws_secret_access_key=self.aws_secret_access_key,
+                    region_name=self.aws_region,
+                )
+
+                async with session.client("textract") as textract:
+                    # Detectar texto no documento
+                    response = await textract.detect_document_text(
+                        Document={"Bytes": pdf_bytes}
+                    )
+
+                    # Extrair texto dos blocos
+                    text_blocks = []
+                    total_confidence = 0.0
+                    confidence_count = 0
+
+                    for block in response.get("Blocks", []):
+                        if block["BlockType"] == "LINE":
+                            text_blocks.append(block.get("Text", ""))
+
+                            # Calcular confiança média
+                            if "Confidence" in block:
+                                total_confidence += block["Confidence"]
+                                confidence_count += 1
+
+                    full_text = "\n".join(text_blocks)
+                    avg_confidence = (
+                        total_confidence / confidence_count if confidence_count > 0 else 0.0
+                    )
+
+                    processing_time_ms = int((time.time() - start_time) * 1000)
+
+                    return OCRResult(
+                        text=full_text,
+                        confidence=avg_confidence / 100.0,  # Normalizar para 0-1
+                        page_count=response.get("DocumentMetadata", {}).get("Pages", 1),
+                        processing_time_ms=processing_time_ms,
+                        raw_response=response,
+                    )
+
+            # Fallback local com Tesseract
+            if not self._use_local:
+                raise ValueError("OCR local indisponível")
+
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            text_blocks = []
+            confidences: list[float] = []
+
+            for page in doc:
+                # Renderizar página com boa resolução
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+                # Texto OCR
+                text = pytesseract.image_to_string(image, lang="por")
+                if text:
+                    text_blocks.append(text)
+
+                # Confiança média aproximada
+                try:
+                    data = pytesseract.image_to_data(image, lang="por", output_type=pytesseract.Output.DICT)
+                    conf_values = [
+                        float(c) for c in data.get("conf", []) if c != "-1"
+                    ]
+                    if conf_values:
+                        confidences.append(sum(conf_values) / len(conf_values))
+                except Exception:
+                    pass
+
+            doc.close()
+
+            full_text = "\n".join(text_blocks)
+            avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+            processing_time_ms = int((time.time() - start_time) * 1000)
+
+            return OCRResult(
+                text=full_text,
+                confidence=avg_confidence / 100.0,
+                page_count=len(text_blocks) if text_blocks else 1,
+                processing_time_ms=processing_time_ms,
+                raw_response=None,
             )
-
-            async with session.client("textract") as textract:
-                # Detectar texto no documento
-                response = await textract.detect_document_text(
-                    Document={"Bytes": pdf_bytes}
-                )
-
-                # Extrair texto dos blocos
-                text_blocks = []
-                total_confidence = 0.0
-                confidence_count = 0
-
-                for block in response.get("Blocks", []):
-                    if block["BlockType"] == "LINE":
-                        text_blocks.append(block.get("Text", ""))
-
-                        # Calcular confiança média
-                        if "Confidence" in block:
-                            total_confidence += block["Confidence"]
-                            confidence_count += 1
-
-                full_text = "\n".join(text_blocks)
-                avg_confidence = (
-                    total_confidence / confidence_count if confidence_count > 0 else 0.0
-                )
-
-                processing_time_ms = int((time.time() - start_time) * 1000)
-
-                return OCRResult(
-                    text=full_text,
-                    confidence=avg_confidence / 100.0,  # Normalizar para 0-1
-                    page_count=response.get("DocumentMetadata", {}).get("Pages", 1),
-                    processing_time_ms=processing_time_ms,
-                    raw_response=response,
-                )
 
         except (BotoCoreError, ClientError) as e:
             raise RuntimeError(f"Erro ao processar OCR com Textract: {str(e)}") from e

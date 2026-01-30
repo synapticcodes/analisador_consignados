@@ -8,20 +8,20 @@ Baseado em PRD RF-013, RF-014, RF-015.
 
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.analysis_job import AnalysisJob, JobStatus
 from app.models.final_result import FinalResult
 from app.models.uploaded_file import UploadedFile
 from app.schemas.analysis_job import AnalysisJobCreate, AnalysisJobResponse
 from app.schemas.final_result import Evidence, FinalResultResponse, MonetaryField
-from app.workers.tasks import enqueue_job
-
 router = APIRouter(prefix="/analysis", tags=["Analysis"])
 
 
@@ -160,10 +160,18 @@ async def create_analysis_job(
     # Por enquanto, apenas criar registros de arquivos
     import hashlib
 
+    base_dir = Path(settings.local_storage_path)
+    if not base_dir.is_absolute():
+        base_dir = Path.cwd() / base_dir
+    job_dir = base_dir / "jobs" / str(job_id)
+    job_dir.mkdir(parents=True, exist_ok=True)
+
     for i, file in enumerate(files):
         file_id = uuid.uuid4()
         file_content = await file.read()
         file_hash = hashlib.sha256(file_content).hexdigest()
+        file_path = (job_dir / f"{file_id}.pdf").resolve()
+        file_path.write_bytes(file_content)
 
         uploaded_file = UploadedFile(
             id=file_id,
@@ -172,7 +180,7 @@ async def create_analysis_job(
             file_size=len(file_content),
             mime_type=file.content_type or "application/pdf",
             file_sha256=file_hash,
-            storage_url=f"local://jobs/{job_id}/files/{file_id}.pdf",
+            storage_url=f"local://{file_path}",
             storage_provider="local",
         )
         await file.seek(0)  # Reset
@@ -184,6 +192,8 @@ async def create_analysis_job(
 
     # Enfileirar job no Celery para processamento assíncrono (RF-013 passo 6)
     try:
+        from app.workers.tasks import enqueue_job
+
         task_id = await enqueue_job(job_id)
         print(f"Job {job_id} enqueued with task_id: {task_id}")
     except Exception as e:
