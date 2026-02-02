@@ -1,5 +1,5 @@
 """
-FinalResult model - Resultados consolidados finais (6 outputs)
+FinalResult model - Resultados consolidados finais (8 outputs)
 """
 
 from datetime import datetime
@@ -30,13 +30,16 @@ class FinalResult(Base):
     competencia_alvo: Mapped[str] = mapped_column(String(7))
 
     # ==========================================
-    # 6 OUTPUTS PRINCIPAIS (em centavos)
+    # 9 OUTPUTS PRINCIPAIS (em centavos)
     # ==========================================
     salario_bruto_cent: Mapped[int | None] = mapped_column(BigInteger)
     salario_liquido_cent: Mapped[int | None] = mapped_column(BigInteger)
     total_descontos_cent: Mapped[int | None] = mapped_column(BigInteger)
+    divida_mensal_cent: Mapped[int | None] = mapped_column(BigInteger)
+    divida_mensal_reduzida_cent: Mapped[int | None] = mapped_column(BigInteger)
     consignado_mensal_cent: Mapped[int | None] = mapped_column(BigInteger)
     divida_total_consignada_cent: Mapped[int | None] = mapped_column(BigInteger)
+    divida_total_reduzida_cent: Mapped[int | None] = mapped_column(BigInteger)
     parcelas_restantes_total: Mapped[int | None] = mapped_column(Integer)
 
     # Provenance (rastreabilidade de cada valor)
@@ -79,6 +82,20 @@ class FinalResult(Base):
         return self.total_descontos_cent / 100 if self.total_descontos_cent else None
 
     @property
+    def divida_mensal_brl(self) -> float | None:
+        """Retorna dívida mensal em reais."""
+        return self.divida_mensal_cent / 100 if self.divida_mensal_cent else None
+
+    @property
+    def divida_mensal_reduzida_brl(self) -> float | None:
+        """Retorna dívida mensal reduzida em reais."""
+        return (
+            self.divida_mensal_reduzida_cent / 100
+            if self.divida_mensal_reduzida_cent
+            else None
+        )
+
+    @property
     def consignado_mensal_brl(self) -> float | None:
         """Retorna consignado mensal em reais."""
         return self.consignado_mensal_cent / 100 if self.consignado_mensal_cent else None
@@ -87,6 +104,15 @@ class FinalResult(Base):
     def divida_total_brl(self) -> float | None:
         """Retorna dívida total em reais."""
         return self.divida_total_consignada_cent / 100 if self.divida_total_consignada_cent else None
+
+    @property
+    def divida_total_reduzida_brl(self) -> float | None:
+        """Retorna dívida total reduzida em reais."""
+        return (
+            self.divida_total_reduzida_cent / 100
+            if self.divida_total_reduzida_cent
+            else None
+        )
 
     def to_dict(self) -> dict:
         """
@@ -117,6 +143,20 @@ class FinalResult(Base):
                 if self.calculation_methods
                 else None,
             },
+            "divida_mensal": {
+                "value": self.divida_mensal_brl,
+                "currency": "BRL",
+                "method": self.calculation_methods.get("divida_mensal")
+                if self.calculation_methods
+                else None,
+            },
+            "divida_mensal_reduzida": {
+                "value": self.divida_mensal_reduzida_brl,
+                "currency": "BRL",
+                "method": self.calculation_methods.get("divida_mensal_reduzida")
+                if self.calculation_methods
+                else None,
+            },
             "consignado_mensal": {
                 "value": self.consignado_mensal_brl,
                 "currency": "BRL",
@@ -128,6 +168,13 @@ class FinalResult(Base):
                 "value": self.divida_total_brl,
                 "currency": "BRL",
                 "method": self.calculation_methods.get("divida_total")
+                if self.calculation_methods
+                else None,
+            },
+            "divida_total_reduzida": {
+                "value": self.divida_total_reduzida_brl,
+                "currency": "BRL",
+                "method": self.calculation_methods.get("divida_total_reduzida")
                 if self.calculation_methods
                 else None,
             },
@@ -151,6 +198,14 @@ class FinalResult(Base):
         if self.total_descontos_cent and self.total_descontos_cent < 0:
             errors.append("Total de descontos não pode ser negativo")
 
+        # Dívida mensal >= 0
+        if self.divida_mensal_cent and self.divida_mensal_cent < 0:
+            errors.append("Dívida mensal não pode ser negativa")
+
+        # Dívida mensal reduzida >= 0
+        if self.divida_mensal_reduzida_cent and self.divida_mensal_reduzida_cent < 0:
+            errors.append("Dívida mensal reduzida não pode ser negativa")
+
         # Consignado mensal >= 0
         if self.consignado_mensal_cent and self.consignado_mensal_cent < 0:
             errors.append("Consignado mensal não pode ser negativo")
@@ -158,6 +213,10 @@ class FinalResult(Base):
         # Dívida total >= 0
         if self.divida_total_consignada_cent and self.divida_total_consignada_cent < 0:
             errors.append("Dívida total não pode ser negativa")
+
+        # Dívida total reduzida >= 0
+        if self.divida_total_reduzida_cent and self.divida_total_reduzida_cent < 0:
+            errors.append("Dívida total reduzida não pode ser negativa")
 
         # Parcelas restantes >= 0
         if self.parcelas_restantes_total and self.parcelas_restantes_total < 0:

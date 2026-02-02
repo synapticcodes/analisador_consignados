@@ -347,6 +347,22 @@ async def get_job_result(
             evidence=dummy_evidence if final_result.total_descontos_cent else None,
             method=calculation_methods.get("total_descontos", "COMPUTED"),
         ),
+        divida_mensal=MonetaryField(
+            value=cents_to_currency(final_result.divida_mensal_cent),
+            currency="BRL",
+            source=bruto_source,
+            evidence=dummy_evidence if final_result.divida_mensal_cent else None,
+            method=calculation_methods.get("divida_mensal", "COMPUTED"),
+        ),
+        divida_mensal_reduzida=MonetaryField(
+            value=cents_to_currency(final_result.divida_mensal_reduzida_cent),
+            currency="BRL",
+            source=bruto_source,
+            evidence=dummy_evidence
+            if final_result.divida_mensal_reduzida_cent
+            else None,
+            method=calculation_methods.get("divida_mensal_reduzida", "COMPUTED"),
+        ),
         consignado_mensal=MonetaryField(
             value=cents_to_currency(final_result.consignado_mensal_cent),
             currency="BRL",
@@ -362,6 +378,15 @@ async def get_job_result(
             if final_result.divida_total_consignada_cent
             else None,
             method=calculation_methods.get("divida_total", "COMPUTED"),
+        ),
+        divida_total_reduzida=MonetaryField(
+            value=cents_to_currency(final_result.divida_total_reduzida_cent),
+            currency="BRL",
+            source="LOAN_CONTRACT",
+            evidence=dummy_evidence
+            if final_result.divida_total_reduzida_cent
+            else None,
+            method=calculation_methods.get("divida_total_reduzida", "COMPUTED"),
         ),
         parcelas_restantes_total=final_result.parcelas_restantes_total,
         alerts=final_result.alerts or [],
