@@ -19,6 +19,7 @@ class ComputeMethod(str):
     SUM_LINES = "SUM_LINES"  # Soma de linhas
     SUM_CONTRACTS = "SUM_CONTRACTS"  # Soma de contratos
     EXTRACTED = "EXTRACTED"  # Extraído diretamente
+    EXTRACTED_TOTAL_COMPROMETIDO = "EXTRACTED_TOTAL_COMPROMETIDO"  # Total comprometido (INSS)
     USER_DECLARED = "USER_DECLARED"  # Declarado pelo usuário
     NOT_APPLICABLE = "NOT_APPLICABLE"  # Não aplicável para o documento
 
@@ -185,6 +186,19 @@ class ComputeEngine:
         consignado_cent = None
         consignado_method = None
 
+        if (
+            consolidated.total_descontos
+            and consolidated.total_descontos.value_cent is not None
+            and consolidated.total_descontos.source
+            == DocumentSource.INSS_EXTRATO_CONSIGNADO
+            and (
+                "TOTAL_COMPROMETIDO"
+                in (consolidated.total_descontos.method or "").upper()
+            )
+        ):
+            consignado_cent = consolidated.total_descontos.value_cent
+            consignado_method = ComputeMethod.EXTRACTED_TOTAL_COMPROMETIDO
+
         def _normalize_text(value: str | None) -> str:
             if not value:
                 return ""
@@ -213,38 +227,39 @@ class ComputeEngine:
                 return False
             return False
 
-        line_sum = 0
-        if consolidated.linhas_consignado:
-            line_sum = sum(
-                linha.valor_cent for linha in consolidated.linhas_consignado
-            )
-
-        contract_sum = 0
-        if consolidated.contratos:
-            for contrato in consolidated.contratos:
-                if contrato.parcela_mensal.value is None:
-                    continue
-                if consolidated.linhas_consignado and any(
-                    _is_duplicate_consignado(linha, contrato)
-                    for linha in consolidated.linhas_consignado
-                ):
-                    continue
-                contract_sum += int(round(contrato.parcela_mensal.value * 100))
-
-        if line_sum or contract_sum:
-            consignado_cent = line_sum + contract_sum
-            if line_sum and contract_sum:
-                consignado_method = (
-                    f"{ComputeMethod.SUM_LINES}+{ComputeMethod.SUM_CONTRACTS}"
+        if consignado_cent is None:
+            line_sum = 0
+            if consolidated.linhas_consignado:
+                line_sum = sum(
+                    linha.valor_cent for linha in consolidated.linhas_consignado
                 )
-            elif line_sum:
-                consignado_method = ComputeMethod.SUM_LINES
-            else:
-                consignado_method = ComputeMethod.SUM_CONTRACTS
-        elif liquido_source == DocumentSource.INSS_HISTORICO_CREDITOS:
-            # Histórico de créditos não consolida consignações
-            consignado_cent = 0
-            consignado_method = ComputeMethod.NOT_APPLICABLE
+
+            contract_sum = 0
+            if consolidated.contratos:
+                for contrato in consolidated.contratos:
+                    if contrato.parcela_mensal.value is None:
+                        continue
+                    if consolidated.linhas_consignado and any(
+                        _is_duplicate_consignado(linha, contrato)
+                        for linha in consolidated.linhas_consignado
+                    ):
+                        continue
+                    contract_sum += int(round(contrato.parcela_mensal.value * 100))
+
+            if line_sum or contract_sum:
+                consignado_cent = line_sum + contract_sum
+                if line_sum and contract_sum:
+                    consignado_method = (
+                        f"{ComputeMethod.SUM_LINES}+{ComputeMethod.SUM_CONTRACTS}"
+                    )
+                elif line_sum:
+                    consignado_method = ComputeMethod.SUM_LINES
+                else:
+                    consignado_method = ComputeMethod.SUM_CONTRACTS
+            elif liquido_source == DocumentSource.INSS_HISTORICO_CREDITOS:
+                # Histórico de créditos não consolida consignações
+                consignado_cent = 0
+                consignado_method = ComputeMethod.NOT_APPLICABLE
 
         # 3. Calcular dívida total consignada (RF-010 CA-004)
         divida_cent = None

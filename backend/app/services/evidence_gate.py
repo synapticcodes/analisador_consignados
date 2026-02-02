@@ -229,8 +229,8 @@ class EvidenceGate:
         do valor. Para evitar falso negativo, escolhe o número mais próximo do valor extraído.
         """
         cleaned = text or ""
-        # Corrige quebra de linha entre dígitos decimais (ex: "1.660,2\\n8" -> "1.660,28")
-        cleaned = re.sub(r"(\\d,[0-9])\\s+(\\d)", r"\\1\\2", cleaned)
+        # Remove espaços/quebras entre dígitos (ex: "1.660,2\\n8" -> "1.660,28")
+        cleaned = re.sub(r"(?<=\d)\s+(?=\d)", "", cleaned)
         values = self.parser.parse_all(cleaned)
         if not values:
             return None
@@ -373,6 +373,17 @@ class EvidenceGate:
                 validated_count += 1
                 alert = self._validate_field(field_name, field, is_critical)
                 if alert:
+                    if (
+                        field_name == "parcelaMensal"
+                        and result.lender_name
+                        and result.valor_total
+                        and result.valor_total.value is not None
+                    ):
+                        alert.is_critical = False
+                        alert.reason = (
+                            "Parcela mensal divergente; contrato com banco e valor total presente. "
+                            "Marcado para revisão."
+                        )
                     failed_count += 1
                     alerts.append(alert)
 

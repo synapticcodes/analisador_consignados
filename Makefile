@@ -67,16 +67,16 @@ shell-db: ## Abrir psql no banco de dados
 
 migrate: ## Rodar migrations do banco
 	@echo "🔄 Aplicando migrations..."
-	docker-compose exec backend alembic upgrade head
+	docker-compose exec backend sh -lc "PYTHONPATH=/app alembic upgrade head"
 	@echo "✅ Migrations aplicadas!"
 
 migrate-create: ## Criar nova migration (use: make migrate-create MSG="descrição")
 	@echo "📝 Criando migration..."
-	docker-compose exec backend alembic revision --autogenerate -m "$(MSG)"
+	docker-compose exec backend sh -lc "PYTHONPATH=/app alembic revision --autogenerate -m \"$(MSG)\""
 
 migrate-down: ## Reverter última migration
 	@echo "⏪ Revertendo migration..."
-	docker-compose exec backend alembic downgrade -1
+	docker-compose exec backend sh -lc "PYTHONPATH=/app alembic downgrade -1"
 
 test-backend: ## Rodar testes do backend
 	@echo "🧪 Rodando testes do backend..."

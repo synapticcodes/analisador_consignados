@@ -187,6 +187,206 @@ class PaymentExtractor:
         except ValueError:
             return None
 
+    def _normalize_for_match(self, value: str) -> str:
+        normalized = value.upper()
+        for src, dst in (
+            ("Á", "A"),
+            ("À", "A"),
+            ("Â", "A"),
+            ("Ã", "A"),
+            ("É", "E"),
+            ("Ê", "E"),
+            ("Í", "I"),
+            ("Ó", "O"),
+            ("Ô", "O"),
+            ("Õ", "O"),
+            ("Ú", "U"),
+            ("Ç", "C"),
+        ):
+            normalized = normalized.replace(src, dst)
+        return normalized
+
+    def _extract_brl_from_line(self, line: str) -> float | None:
+        match = re.search(
+            r"(?:R\$\s*)?(-?\d{1,3}(?:\.\d{3})*,\d{2})", line
+        )
+        if not match:
+            return None
+        return self._parse_brl_value(match.group(1))
+
+    def _is_consignado_desc(self, line: str) -> bool:
+        normalized = self._normalize_for_match(line)
+        has_keyword = "EMPREST" in normalized or "AMORT" in normalized
+        if not has_keyword:
+            return False
+        if "IRRF" in normalized or re.search(r"\bIR\b", normalized):
+            return False
+        excludes = ("PREVID", "PREV", "SINDIC", "SIND")
+        return not any(token in normalized for token in excludes)
+
+    def _is_descontos_header(self, line: str) -> bool:
+        normalized = self._normalize_for_match(line)
+        return "DESCONTOS" in normalized and "TOTAL" not in normalized
+
+    def _is_descontos_terminator(self, line: str) -> bool:
+        normalized = self._normalize_for_match(line)
+        if "TOTAL" in normalized and "DESCONTO" in normalized:
+            return True
+        if "TOTAL" in normalized and "PROVENTO" in normalized:
+            return True
+        if "LIQUIDO" in normalized:
+            return True
+        if "BRUTO" in normalized:
+            return True
+        if "PROVENTOS" in normalized or "VANTAGENS" in normalized:
+            return True
+        if "RESUMO" in normalized or "BASE" in normalized:
+            return True
+        return False
+
+    def _extract_payroll_consignado_lines_deterministic(
+        self, text: str
+    ) -> list[ConsignadoLine]:
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        blocks: list[list[str]] = []
+
+        i = 0
+        while i < len(lines):
+            if self._is_descontos_header(lines[i]):
+                start = i + 1
+                end = start
+                while end < len(lines) and not self._is_descontos_terminator(lines[end]):
+                    end += 1
+                if start < end:
+                    blocks.append(lines[start:end])
+                i = end
+                continue
+            i += 1
+
+        extracted: list[ConsignadoLine] = []
+        for block in blocks:
+            i = 0
+            pending: dict[str, str | float | None] | None = None
+            while i < len(block):
+                line = block[i]
+                if re.fullmatch(r"\d{3}", line):
+                    pending = {
+                        "rubrica": line,
+                        "value": None,
+                        "value_line": None,
+                        "desc": None,
+                        "desc_line": None,
+                    }
+                    i += 1
+                    continue
+
+                value = self._extract_brl_from_line(line)
+                is_desc = self._is_consignado_desc(line)
+
+                if pending:
+                    if is_desc and pending["desc"] is None:
+                        pending["desc"] = line
+                        pending["desc_line"] = line
+                    if value is not None and pending["value"] is None:
+                        pending["value"] = value
+                        pending["value_line"] = line
+                    if pending["desc"] and pending["value"] is not None:
+                        valor_cent = int(round(float(pending["value"]) * 100))
+                        evidence_text = "\n".join(
+                            part
+                            for part in (
+                                pending["rubrica"],
+                                pending["value_line"],
+                                pending["desc_line"],
+                            )
+                            if part
+                        )
+                        extracted.append(
+                            ConsignadoLine(
+                                descricao=str(pending["desc"]),
+                                rubrica=str(pending["rubrica"]),
+                                valor_cent=valor_cent,
+                                evidence=FieldEvidence(page=0, text=evidence_text),
+                            )
+                        )
+                        pending = None
+                    i += 1
+                    continue
+
+                if is_desc:
+                    if value is not None:
+                        extracted.append(
+                            ConsignadoLine(
+                                descricao=line,
+                                rubrica=None,
+                                valor_cent=int(round(value * 100)),
+                                evidence=FieldEvidence(page=0, text=line),
+                            )
+                        )
+                        i += 1
+                        continue
+                    if i + 1 < len(block):
+                        next_value = self._extract_brl_from_line(block[i + 1])
+                        if next_value is not None:
+                            evidence_text = f"{line}\n{block[i + 1]}"
+                            extracted.append(
+                                ConsignadoLine(
+                                    descricao=line,
+                                    rubrica=None,
+                                    valor_cent=int(round(next_value * 100)),
+                                    evidence=FieldEvidence(page=0, text=evidence_text),
+                                )
+                            )
+                            i += 2
+                            continue
+
+                if value is not None and i + 1 < len(block):
+                    next_line = block[i + 1]
+                    if self._is_consignado_desc(next_line):
+                        evidence_text = f"{next_line}\n{line}"
+                        extracted.append(
+                            ConsignadoLine(
+                                descricao=next_line,
+                                rubrica=None,
+                                valor_cent=int(round(value * 100)),
+                                evidence=FieldEvidence(page=0, text=evidence_text),
+                            )
+                        )
+                        i += 2
+                        continue
+
+                i += 1
+
+        return extracted
+
+    def _merge_consignado_lines(
+        self,
+        existing: list[ConsignadoLine],
+        incoming: list[ConsignadoLine],
+    ) -> tuple[list[ConsignadoLine], int]:
+        merged = list(existing)
+        existing_keys = {
+            (
+                self._normalize_for_match(line.descricao or ""),
+                line.valor_cent,
+                line.rubrica or "",
+            )
+            for line in existing
+        }
+        added = 0
+        for line in incoming:
+            key = (
+                self._normalize_for_match(line.descricao or ""),
+                line.valor_cent,
+                line.rubrica or "",
+            )
+            if key in existing_keys:
+                continue
+            merged.append(line)
+            existing_keys.add(key)
+            added += 1
+        return merged, added
+
     def _extract_inss_historico_values(self, text: str) -> dict:
         """
         Extrai valores determinísticos para Histórico de Créditos do INSS.
@@ -598,6 +798,18 @@ class PaymentExtractor:
                 alerts=[f"Erro ao extrair dados: {str(e)}"],
             )
 
+        # Complemento deterministico: linhas de consignado em DESCONTOS
+        deterministic_lines = self._extract_payroll_consignado_lines_deterministic(text)
+        if deterministic_lines:
+            merged, added = self._merge_consignado_lines(
+                result.linhas_consignado, deterministic_lines
+            )
+            if added:
+                result.linhas_consignado = merged
+                result.alerts.append(
+                    "Consignado complementado por regra deterministica."
+                )
+
         # Fallback determinístico para Histórico de Créditos INSS
         if "HISTÓRICO DE CRÉDITOS" in text.upper() or "HISTORICO DE CREDITOS" in text.upper():
             parsed = self._extract_inss_historico_values(text)
@@ -911,12 +1123,32 @@ class LoanExtractor:
         redacted = re.sub(r"\d", "X", text)
         return redacted[:limit]
 
+    def _normalize_for_match(self, value: str) -> str:
+        normalized = (value or "").upper()
+        for src, dst in (
+            ("Á", "A"),
+            ("À", "A"),
+            ("Â", "A"),
+            ("Ã", "A"),
+            ("É", "E"),
+            ("Ê", "E"),
+            ("Í", "I"),
+            ("Ó", "O"),
+            ("Ô", "O"),
+            ("Õ", "O"),
+            ("Ú", "U"),
+            ("Ç", "C"),
+        ):
+            normalized = normalized.replace(src, dst)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        return normalized
+
     def _parse_currency_values(self, text: str) -> list[tuple[float, str]]:
         """
         Extrai valores monetários em BRL permitindo quebra de linha entre inteiro e centavos.
         Retorna lista de tuplas (valor_float, evidência_texto).
         """
-        cleaned = re.sub(r"(\d,\d)\s+(\d)", r"\1\2", text or "")
+        cleaned = re.sub(r"(?<=\d)\s+(?=\d)", "", text or "")
         pattern = re.compile(r"R\$\s*([\d\.]+)\s*,\s*(\d{2})")
         values: list[tuple[float, str]] = []
         for match in pattern.finditer(cleaned):
@@ -1042,9 +1274,94 @@ class LoanExtractor:
     def _extract_card_reserved_contracts(self, text: str) -> list[LoanContractResult]:
         """
         Extrai valores de reserva de cartão consignado (RCC/RMC) do extrato.
-        Retorna como pseudo-contratos para compor consignado mensal.
+        Retorna como pseudo-contratos para compor consignado mensal e dívida total.
         """
         results: list[LoanContractResult] = []
+
+        def build_card_result(
+            card_label: str,
+            limit_value: float | None,
+            limit_evidence: str | None,
+            margin_value: float | None,
+            margin_evidence: str | None,
+        ) -> LoanContractResult:
+            parcela_field = ExtractedField(None, None, None, None)
+            if margin_value is not None:
+                parcela_field = ExtractedField(
+                    value=margin_value,
+                    currency="BRL",
+                    method="EXTRACTED_FROM_CARD_MARGIN",
+                    evidence=FieldEvidence(page=0, text=margin_evidence or ""),
+                )
+
+            valor_total_field = ExtractedField(None, None, None, None)
+            if limit_value is not None:
+                valor_total_field = ExtractedField(
+                    value=limit_value,
+                    currency="BRL",
+                    method="EXTRACTED_FROM_CARD_LIMIT",
+                    evidence=FieldEvidence(page=0, text=limit_evidence or ""),
+                )
+
+            alerts = [
+                "Limite de cartão consignado (RMC/RCC) incluído na dívida total."
+            ]
+            if margin_value is not None:
+                alerts.append(
+                    "Valor de cartão consignado (RMC/RCC) incluído no consignado mensal."
+                )
+
+            return LoanContractResult(
+                lender_name=f"CARTAO {card_label}",
+                contract_id=None,
+                parcela_mensal=parcela_field,
+                total_parcelas=None,
+                parcelas_pagas=None,
+                parcelas_restantes=None,
+                valor_total=valor_total_field,
+                taxa_juros=None,
+                alerts=alerts,
+            )
+
+        lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+
+        seen: set[tuple[str, float | None, float | None]] = set()
+
+        def extract_by_marker(marker: str, card_label: str) -> None:
+            marker_norm = self._normalize_for_match(marker)
+            for idx in range(len(lines)):
+                chunk = " ".join(lines[idx : idx + 4])
+                if marker_norm not in self._normalize_for_match(chunk):
+                    continue
+                start = max(0, idx - 18)
+                end = min(len(lines), idx + 6)
+                window = "\n".join(lines[start:end])
+                values = self._parse_currency_values(window)
+                if not values:
+                    continue
+                # Escolher maior valor como limite e menor como margem
+                values_sorted = sorted(values, key=lambda item: item[0])
+                margin_value, margin_evidence = values_sorted[0]
+                limit_value, limit_evidence = values_sorted[-1]
+                key = (card_label, limit_value, margin_value)
+                if key in seen:
+                    continue
+                seen.add(key)
+                results.append(
+                    build_card_result(
+                        card_label,
+                        limit_value,
+                        limit_evidence,
+                        margin_value,
+                        margin_evidence,
+                    )
+                )
+
+        extract_by_marker("Reserva de Margem para Cartão (RMC)", "RMC")
+        extract_by_marker("Reserva de Cartão Consignado (RCC)", "RCC")
+
+        if results:
+            return results
 
         # 1) Preferir seção "Margem para Empréstimo/Cartão e Resumo Financeiro"
         header_match = re.search(
@@ -1063,7 +1380,7 @@ class LoanExtractor:
             if end_match:
                 end_idx = start_idx + end_match.start()
             block = text[start_idx:end_idx] if end_idx else text[start_idx:]
-            normalized = re.sub(r"\\s+", " ", block)
+            normalized = re.sub(r"\s+", " ", block)
             card_match = re.search(
                 r"\bRCC\b\s*R\$\s*([\d\.]+,\d{2})",
                 normalized,
@@ -1080,26 +1397,12 @@ class LoanExtractor:
                 if values:
                     value, evidence = values[0]
                     results.append(
-                        LoanContractResult(
-                            lender_name=None,
-                            contract_id=None,
-                            parcela_mensal=ExtractedField(
-                                value=value,
-                                currency="BRL",
-                                method="EXTRACTED_FROM_MARGIN_SUMMARY",
-                                evidence=FieldEvidence(
-                                    page=0,
-                                    text=f"{card_match.group(0)}",
-                                ),
-                            ),
-                            total_parcelas=None,
-                            parcelas_pagas=None,
-                            parcelas_restantes=None,
-                            valor_total=ExtractedField(None, None, None, None),
-                            taxa_juros=None,
-                            alerts=[
-                                "Valor de cartão consignado (RCC/RMC) incluído no consignado mensal."
-                            ],
+                        build_card_result(
+                            "RMC/RCC",
+                            None,
+                            None,
+                            value,
+                            evidence,
                         )
                     )
 
@@ -1114,25 +1417,14 @@ class LoanExtractor:
                 values = self._parse_currency_values(block)
                 if not values:
                     continue
-                value, evidence = min(values, key=lambda item: item[0])
+                value, evidence = max(values, key=lambda item: item[0])
                 results.append(
-                    LoanContractResult(
-                        lender_name=None,
-                        contract_id=None,
-                        parcela_mensal=ExtractedField(
-                            value=value,
-                            currency="BRL",
-                            method="EXTRACTED_FROM_CARD_RESERVED",
-                            evidence=FieldEvidence(page=0, text=evidence),
-                        ),
-                        total_parcelas=None,
-                        parcelas_pagas=None,
-                        parcelas_restantes=None,
-                        valor_total=ExtractedField(None, None, None, None),
-                        taxa_juros=None,
-                        alerts=[
-                            "Valor de cartão consignado (RCC/RMC) incluído no consignado mensal."
-                        ],
+                    build_card_result(
+                        "RMC/RCC",
+                        value,
+                        evidence,
+                        None,
+                        None,
                     )
                 )
 
