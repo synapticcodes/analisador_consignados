@@ -50,8 +50,11 @@ export interface FinalResultResponseApi {
   salario_bruto: MonetaryFieldApi
   salario_liquido: MonetaryFieldApi
   total_descontos: MonetaryFieldApi
+  divida_mensal: MonetaryFieldApi
+  divida_mensal_reduzida: MonetaryFieldApi
   consignado_mensal: MonetaryFieldApi
   divida_total_consignada: MonetaryFieldApi
+  divida_total_reduzida: MonetaryFieldApi
   parcelas_restantes_total: number | null
   alerts: string[] | null
 }
@@ -60,12 +63,15 @@ export interface FinalResultResponse {
   job_id: string
   competencia_alvo: string
 
-  // 6 Outputs principais (em centavos)
+  // 9 Outputs principais (em centavos)
   salario_bruto_cent: number | null
   salario_liquido_cent: number | null
   total_descontos_cent: number | null
+  divida_mensal_cent: number | null
+  divida_mensal_reduzida_cent: number | null
   consignado_mensal_cent: number | null
   divida_total_consignada_cent: number | null
+  divida_total_reduzida_cent: number | null
   parcelas_restantes_total: number | null
 
   // Provenance & Alertas

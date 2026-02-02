@@ -16,6 +16,9 @@ import {
   Info,
   ChevronRight,
   ArrowLeft,
+  Percent,
+  ArrowDownRight,
+  ArrowDownLeft,
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -234,7 +237,7 @@ export default function JobResultPage() {
           </Card>
         )}
 
-        {/* 6 Outputs Principais */}
+        {/* 9 Outputs Principais */}
         <div className="mb-8">
           <h2 className="mb-4 text-xl font-semibold text-gray-900">
             Indicadores Financeiros
@@ -268,6 +271,24 @@ export default function JobResultPage() {
               description="Soma de todos os descontos"
             />
 
+            {/* Dívida Mensal */}
+            <OutputCard
+              icon={Percent}
+              title="Dívida Mensal"
+              value={result.divida_mensal_cent}
+              color="blue"
+              description="90% do total de descontos"
+            />
+
+            {/* Dívida Mensal Reduzida */}
+            <OutputCard
+              icon={ArrowDownRight}
+              title="Dívida Mensal Reduzida"
+              value={result.divida_mensal_reduzida_cent}
+              color="green"
+              description="25% da dívida mensal"
+            />
+
             {/* Consignado Mensal */}
             <OutputCard
               icon={CreditCard}
@@ -284,6 +305,15 @@ export default function JobResultPage() {
               value={result.divida_total_consignada_cent}
               color="purple"
               description="Saldo devedor total"
+            />
+
+            {/* Dívida Total Reduzida */}
+            <OutputCard
+              icon={ArrowDownLeft}
+              title="Dívida Total Reduzida"
+              value={result.divida_total_reduzida_cent}
+              color="green"
+              description="25% da dívida total consignada"
             />
 
             {/* Parcelas Restantes */}

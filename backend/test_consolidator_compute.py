@@ -252,6 +252,8 @@ def test_compute_engine_calculations():
     # Criar dados consolidados
     consolidated = ConsolidatedData(
         competencia_alvo="2024-01",
+        renda_competencia=None,
+        perfil_dados=None,
         salario_bruto=ConsolidatedValue(
             value_cent=500000,  # R$ 5.000,00
             source=DocumentSource.PAYROLL_SALARY_STATEMENT,
@@ -282,8 +284,11 @@ def test_compute_engine_calculations():
     print(f"   Bruto: R$ {result.salario_bruto_cent/100:.2f}")
     print(f"   Líquido: R$ {result.salario_liquido_cent/100:.2f}")
     print(f"   Descontos: R$ {result.total_descontos_cent/100:.2f} (método: {result.descontos_method})")
+    print(f"   Dívida Mensal: R$ {result.divida_mensal_cent/100:.2f} (método: {result.divida_mensal_method})")
+    print(f"   Dívida Mensal Reduzida: R$ {result.divida_mensal_reduzida_cent/100:.2f} (método: {result.divida_mensal_reduzida_method})")
     print(f"   Consignado Mensal: R$ {result.consignado_mensal_cent/100:.2f} (método: {result.consignado_method})")
     print(f"   Dívida Total: R$ {result.divida_total_consignada_cent/100:.2f} (método: {result.divida_method})")
+    print(f"   Dívida Total Reduzida: R$ {result.divida_total_reduzida_cent/100:.2f} (método: {result.divida_total_reduzida_method})")
     print(f"   Parcelas Restantes: {result.parcelas_restantes_total} (método: {result.parcelas_method})")
     print(f"   Alertas: {len(result.alerts)}")
 
@@ -291,9 +296,15 @@ def test_compute_engine_calculations():
     checks = [
         ("Descontos = Bruto - Líquido", result.total_descontos_cent == 100000),  # R$ 1.000,00
         ("Método descontos correto", result.descontos_method == ComputeMethod.DIFFERENCE),
+        ("Dívida mensal = 90% descontos", result.divida_mensal_cent == 90000),  # R$ 900,00
+        ("Método dívida mensal correto", result.divida_mensal_method == ComputeMethod.PERCENTAGE_90),
+        ("Dívida mensal reduzida = 25% dívida mensal", result.divida_mensal_reduzida_cent == 22500),  # R$ 225,00
+        ("Método dívida mensal reduzida correto", result.divida_mensal_reduzida_method == ComputeMethod.PERCENTAGE_25),
         ("Consignado = Soma linhas", result.consignado_mensal_cent == 25000),  # R$ 250,00
         ("Método consignado correto", result.consignado_method == ComputeMethod.SUM_LINES),
         ("Dívida = Soma contratos", result.divida_total_consignada_cent == 1000000),  # R$ 10.000,00
+        ("Dívida total reduzida = 25% dívida total", result.divida_total_reduzida_cent == 250000),  # R$ 2.500,00
+        ("Método dívida total reduzida correto", result.divida_total_reduzida_method == ComputeMethod.PERCENTAGE_25_DIVIDA_TOTAL),
         ("Parcelas restantes corretas", result.parcelas_restantes_total == 24),
         ("Sem alertas de erro", len([a for a in result.alerts if a.severity == "ERROR"]) == 0),
     ]

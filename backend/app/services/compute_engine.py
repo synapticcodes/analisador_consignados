@@ -22,6 +22,9 @@ class ComputeMethod(str):
     EXTRACTED_TOTAL_COMPROMETIDO = "EXTRACTED_TOTAL_COMPROMETIDO"  # Total comprometido (INSS)
     USER_DECLARED = "USER_DECLARED"  # Declarado pelo usuário
     NOT_APPLICABLE = "NOT_APPLICABLE"  # Não aplicável para o documento
+    PERCENTAGE_90 = "PERCENTAGE_90"  # 90% do total de descontos
+    PERCENTAGE_25 = "PERCENTAGE_25"  # 25% da dívida mensal
+    PERCENTAGE_25_DIVIDA_TOTAL = "PERCENTAGE_25_DIVIDA_TOTAL"  # 25% da dívida total consignada
 
 
 @dataclass
@@ -32,14 +35,20 @@ class ComputeResult:
     salario_bruto_cent: int | None
     salario_liquido_cent: int | None
     total_descontos_cent: int | None
+    divida_mensal_cent: int | None
+    divida_mensal_reduzida_cent: int | None
     consignado_mensal_cent: int | None
     divida_total_consignada_cent: int | None
+    divida_total_reduzida_cent: int | None
     parcelas_restantes_total: int | None
 
     # Metadata de cálculo
     descontos_method: str | None
+    divida_mensal_method: str | None
+    divida_mensal_reduzida_method: str | None
     consignado_method: str | None
     divida_method: str | None
+    divida_total_reduzida_method: str | None
     parcelas_method: str | None
 
     # Provenance (fontes)
@@ -60,12 +69,18 @@ class ComputeResult:
             "salario_bruto_cent": self.salario_bruto_cent,
             "salario_liquido_cent": self.salario_liquido_cent,
             "total_descontos_cent": self.total_descontos_cent,
+            "divida_mensal_cent": self.divida_mensal_cent,
+            "divida_mensal_reduzida_cent": self.divida_mensal_reduzida_cent,
             "consignado_mensal_cent": self.consignado_mensal_cent,
             "divida_total_consignada_cent": self.divida_total_consignada_cent,
+            "divida_total_reduzida_cent": self.divida_total_reduzida_cent,
             "parcelas_restantes_total": self.parcelas_restantes_total,
             "descontos_method": self.descontos_method,
+            "divida_mensal_method": self.divida_mensal_method,
+            "divida_mensal_reduzida_method": self.divida_mensal_reduzida_method,
             "consignado_method": self.consignado_method,
             "divida_method": self.divida_method,
+            "divida_total_reduzida_method": self.divida_total_reduzida_method,
             "parcelas_method": self.parcelas_method,
             "bruto_source": self.bruto_source,
             "liquido_source": self.liquido_source,
@@ -153,6 +168,18 @@ class ComputeEngine:
                 descontos_method = None
         elif descontos_cent is not None:
             descontos_method = ComputeMethod.EXTRACTED
+
+        # 1a. Calcular dívida mensal e dívida mensal reduzida (novas métricas)
+        divida_mensal_cent = None
+        divida_mensal_reduzida_cent = None
+        divida_mensal_method = None
+        divida_mensal_reduzida_method = None
+
+        if descontos_cent is not None:
+            divida_mensal_cent = (descontos_cent * 90) // 100
+            divida_mensal_method = ComputeMethod.PERCENTAGE_90
+            divida_mensal_reduzida_cent = (divida_mensal_cent * 25) // 100
+            divida_mensal_reduzida_method = ComputeMethod.PERCENTAGE_25
 
         # 1b. Calcular salario_liquido_cent quando base e descontos existem
         if (
@@ -277,6 +304,13 @@ class ComputeEngine:
                 )
                 divida_method = ComputeMethod.SUM_CONTRACTS
 
+        # 3b. Calcular dívida total reduzida (25% da dívida total consignada)
+        divida_total_reduzida_cent = None
+        divida_total_reduzida_method = None
+        if divida_cent is not None:
+            divida_total_reduzida_cent = (divida_cent * 25) // 100
+            divida_total_reduzida_method = ComputeMethod.PERCENTAGE_25_DIVIDA_TOTAL
+
         # 4. Calcular parcelas restantes total (RF-010 CA-005)
         parcelas_restantes = None
         parcelas_method = None
@@ -342,12 +376,18 @@ class ComputeEngine:
             salario_bruto_cent=bruto_cent,
             salario_liquido_cent=liquido_cent,
             total_descontos_cent=descontos_cent,
+            divida_mensal_cent=divida_mensal_cent,
+            divida_mensal_reduzida_cent=divida_mensal_reduzida_cent,
             consignado_mensal_cent=consignado_cent,
             divida_total_consignada_cent=divida_cent,
+            divida_total_reduzida_cent=divida_total_reduzida_cent,
             parcelas_restantes_total=parcelas_restantes,
             descontos_method=descontos_method,
+            divida_mensal_method=divida_mensal_method,
+            divida_mensal_reduzida_method=divida_mensal_reduzida_method,
             consignado_method=consignado_method,
             divida_method=divida_method,
+            divida_total_reduzida_method=divida_total_reduzida_method,
             parcelas_method=parcelas_method,
             bruto_source=bruto_source,
             liquido_source=liquido_source,
