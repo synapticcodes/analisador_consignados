@@ -11,7 +11,6 @@ import {
   DollarSign,
   TrendingDown,
   CreditCard,
-  Calendar,
   AlertTriangle,
   Info,
   ChevronRight,
@@ -237,7 +236,7 @@ export default function JobResultPage() {
           </Card>
         )}
 
-        {/* 9 Outputs Principais */}
+        {/* 7 Outputs Principais */}
         <div className="mb-8">
           <h2 className="mb-4 text-xl font-semibold text-gray-900">
             Indicadores Financeiros
@@ -289,15 +288,6 @@ export default function JobResultPage() {
               description="25% da dívida mensal"
             />
 
-            {/* Consignado Mensal */}
-            <OutputCard
-              icon={CreditCard}
-              title="Consignado Mensal"
-              value={result.consignado_mensal_cent}
-              color="red"
-              description="Valor mensal de consignações"
-            />
-
             {/* Dívida Total Consignada */}
             <OutputCard
               icon={CreditCard}
@@ -315,16 +305,6 @@ export default function JobResultPage() {
               color="green"
               description="25% da dívida total consignada"
             />
-
-            {/* Parcelas Restantes */}
-            <OutputCard
-              icon={Calendar}
-              title="Parcelas Restantes"
-              value={result.parcelas_restantes_total}
-              suffix="parcelas"
-              color="gray"
-              description="Total de parcelas a pagar"
-            />
           </div>
         </div>
 
@@ -339,7 +319,12 @@ export default function JobResultPage() {
             </CardHeader>
             <CardContent>
               <div className="grid gap-3 md:grid-cols-2">
-                {Object.entries(result.calculation_methods).map(([key, method]) => (
+                {Object.entries(result.calculation_methods)
+                  .filter(
+                    ([key]) =>
+                      !['consignado_mensal', 'parcelas_restantes'].includes(key)
+                  )
+                  .map(([key, method]) => (
                   <div
                     key={key}
                     className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 p-3"
