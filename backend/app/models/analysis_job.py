@@ -16,7 +16,9 @@ from app.core.database import Base
 if TYPE_CHECKING:
     from app.models.final_result import FinalResult
     from app.models.loan_contract import LoanContract
+    from app.models.offer import Offer
     from app.models.payroll_month import PayrollMonth
+    from app.models.product import Product
     from app.models.uploaded_file import UploadedFile
     from app.models.user import User
 
@@ -49,6 +51,10 @@ class AnalysisJob(Base):
         ForeignKey("users.id", ondelete="SET NULL"), index=True
     )
 
+    product_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("products.id", ondelete="RESTRICT"), index=True
+    )
+
     # Status
     status: Mapped[str] = mapped_column(String, default=JobStatus.PENDING.value, index=True)
 
@@ -77,6 +83,10 @@ class AnalysisJob(Base):
     # Relationships
     user: Mapped["User | None"] = relationship("User", back_populates="jobs")
 
+    product: Mapped["Product | None"] = relationship(
+        "Product", back_populates="jobs"
+    )
+
     uploaded_files: Mapped[list["UploadedFile"]] = relationship(
         "UploadedFile", back_populates="job", cascade="all, delete-orphan"
     )
@@ -91,6 +101,10 @@ class AnalysisJob(Base):
 
     final_result: Mapped["FinalResult | None"] = relationship(
         "FinalResult", back_populates="job", uselist=False, cascade="all, delete-orphan"
+    )
+
+    offers: Mapped[list["Offer"]] = relationship(
+        "Offer", back_populates="job", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

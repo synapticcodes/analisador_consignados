@@ -18,6 +18,8 @@ from app.core.config import settings
 from app.core.database import create_engine_and_session
 from app.models.analysis_job import AnalysisJob, JobStatus
 from app.models.final_result import FinalResult
+from app.models.offer import Offer
+from app.models.product import Product
 from app.models.document_extraction import DocumentExtraction
 from app.models.uploaded_file import UploadedFile
 from app.services.compute_engine import ComputeEngine
@@ -31,6 +33,7 @@ from app.services.extractors import (
 )
 from app.services.llm_client import LLMClient, MockLLMClient
 from app.services.ocr_service import OCRService
+from app.services.offers import generate_offers
 from app.services.pdf_extraction import PDFExtractionService
 from app.services.router import RouterService
 from app.workers.celery_app import celery_app
@@ -407,7 +410,54 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
             # 6. Compute Engine (calcular outputs)
             compute_result = compute_engine.compute(consolidated)
 
+            # 6b. Gerar ofertas do produto (baseado no salário líquido)
+            offers_alerts: list[str] = []
+            offers_payload: list[Offer] = []
+            salary_cent = (
+                compute_result.salario_liquido_cent
+                if compute_result.salario_liquido_cent is not None
+                else job.renda_mensal_declarada_cent
+            )
+
+            product = None
+            if job.product_id:
+                product_result = await db.execute(
+                    select(Product).where(Product.id == job.product_id)
+                )
+                product = product_result.scalar_one_or_none()
+
+            if product:
+                offers, offers_alerts = generate_offers(
+                    job_id=job_id,
+                    salary_cent=salary_cent,
+                    product=product,
+                )
+                for offer in offers:
+                    offers_payload.append(
+                        Offer(
+                            job_id=job_id,
+                            product_id=product.id,
+                            kind=offer.kind,
+                            installment_count=offer.installment_count,
+                            installment_value_cent=offer.installment_value_cent,
+                            total_value_cent=offer.total_value_cent,
+                            entry_value_cent=offer.entry_value_cent,
+                            entry_due_days=offer.entry_due_days,
+                            first_payment_days=offer.first_payment_days,
+                            payment_method=offer.payment_method,
+                            salary_liquid_used_cent=offer.salary_liquid_used_cent,
+                            percent_used=offer.percent_used,
+                            seed=f"{job_id}:{offer.kind}",
+                            text=offer.text,
+                        )
+                    )
+            else:
+                offers_alerts.append("Ofertas não geradas: produto não informado")
+
             # 7. Persistir resultado final
+            # Alertas não devem ser retornados no resultado final.
+            alerts_payload: list[str] = []
+
             final_result = FinalResult(
                 job_id=job_id,
                 competencia_alvo=consolidated.competencia_alvo,
@@ -433,10 +483,12 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                     "salario_bruto": {"source": compute_result.bruto_source},
                     "salario_liquido": {"source": compute_result.liquido_source},
                 },
-                alerts=[],  # TODO: Adicionar alertas do Evidence Gate
+                alerts=alerts_payload,
             )
 
             db.add(final_result)
+            for offer in offers_payload:
+                db.add(offer)
 
             # 8. Atualizar job para SUCCEEDED
             job.status = JobStatus.SUCCEEDED.value
