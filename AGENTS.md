@@ -1,5 +1,5 @@
 ## Project Summary & Scope
-- This repo implements a PDF analysis pipeline (FastAPI + Celery) and a Next.js UI for uploading 1-3 PDFs and displaying six financial outputs with evidence.
+- This repo implements a PDF analysis pipeline (FastAPI + Celery) and a Next.js UI for uploading 1-3 PDFs and displaying 7 financial outputs in the UI (backend returns 9 total outputs, with 2 legacy).
 - Core pipeline: PDF text extraction -> LLM routing -> LLM extraction -> deterministic Evidence Gate -> competencia selection -> consolidation -> compute engine -> API result.
 - All monetary values are stored and computed as centavos (BIGINT) and formatted for display as BRL.
 - Agents must always respond in Brazilian Portuguese (pt-BR) in all outputs and communications.
@@ -102,19 +102,24 @@ docker build --target production -t calculadora-frontend:latest .
 - `compute_engine.py`: compute in centavos only. Formulas:
 ```text
 descontos = bruto - liquido (DIFFERENCE)
+divida_mensal = 90% do total_descontos
+divida_mensal_reduzida = 25% da divida_mensal
 consignado_mensal = sum(linhas_consignado)
 divida_total = sum(valor_total_contrato)
+divida_total_reduzida = 25% da divida_total_consignada
 parcelas_restantes = sum(parcelas_restantes or total_parcelas - parcelas_pagas)
 ```
+- Percentuais são calculados em centavos com truncamento: `(valor_cent * percent) // 100`.
 - `POST /v1/analysis/jobs`: 1-3 PDFs, max 10MB each, 25MB total; inputs `renda_mensal_declarada` and `gasto_dividas_declarado` in BRL string format; return 201 with `jobId` UUID.
 - `GET /v1/analysis/jobs/{jobId}` returns status and progress info.
-- `GET /v1/analysis/jobs/{jobId}/result` returns 6 outputs; return 202 if not ready and 500 if failed; sanitize evidence text for PII and truncate alerts to 50 chars.
+- `GET /v1/analysis/jobs/{jobId}/result` returns 9 outputs; return 202 if not ready and 500 if failed; sanitize evidence text for PII and truncate alerts to 50 chars.
 - DB schema lives in `backend/app/models/` and migrations in `backend/alembic/`. Always create Alembic migrations for schema changes.
 
 ### Frontend (Next.js App Router)
 - Pages live in `frontend/src/app/`; shared UI in `frontend/src/components/ui/`.
 - Keep API types in `frontend/src/types/api.ts` in sync with backend schemas and response fields.
 - All money in the UI is in centavos; use `formatCurrency` for display and `parseCurrency` for user input.
+- UI currently hides legacy metrics `consignado_mensal` and `parcelas_restantes_total` (still computed/persisted in backend).
 
 ### Shared domain rules
 - Document families (Phase 1): `PAYROLL_SALARY_STATEMENT`, `INSS_HISTORICO_CREDITOS`, `INSS_EXTRATO_CONSIGNADO`, `OTHER_UNKNOWN` (the router code also defines `LOAN_CONTRACT_GENERIC`; keep downstream handling consistent if you use it).

@@ -19,9 +19,12 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.analysis_job import AnalysisJob, JobStatus
 from app.models.final_result import FinalResult
+from app.models.offer import Offer
+from app.models.product import Product
 from app.models.uploaded_file import UploadedFile
 from app.schemas.analysis_job import AnalysisJobCreate, AnalysisJobResponse
 from app.schemas.final_result import Evidence, FinalResultResponse, MonetaryField
+from app.schemas.offer import OfferResponse
 router = APIRouter(prefix="/analysis", tags=["Analysis"])
 
 
@@ -42,6 +45,10 @@ async def create_analysis_job(
             description="Arquivos PDF (1-3 arquivos, max 10MB cada)",
             media_type="application/pdf",
         ),
+    ],
+    product_id: Annotated[
+        str,
+        Form(description="ID do produto selecionado"),
     ],
     renda_mensal_declarada: Annotated[
         str | None,
@@ -113,6 +120,25 @@ async def create_analysis_job(
     renda_mensal_declarada_cent = None
     gasto_dividas_declarado_cent = None
 
+    # Validar produto
+    try:
+        product_uuid = uuid.UUID(product_id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid product_id: {str(e)}",
+        ) from e
+
+    product_result = await db.execute(
+        select(Product).where(Product.id == product_uuid, Product.active.is_(True))
+    )
+    product = product_result.scalar_one_or_none()
+    if not product:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Product not found or inactive",
+        )
+
     if renda_mensal_declarada:
         try:
             # Usar o validator do schema
@@ -148,6 +174,7 @@ async def create_analysis_job(
         id=job_id,
         user_id=None,  # TODO: Extrair de JWT quando autenticação estiver implementada
         status=JobStatus.PENDING,
+        product_id=product_uuid,
         renda_mensal_declarada_cent=renda_mensal_declarada_cent,
         gasto_dividas_declarado_cent=gasto_dividas_declarado_cent,
         created_at=datetime.now(),
@@ -323,6 +350,15 @@ async def get_job_result(
     bruto_source = provenance.get("salario_bruto", {}).get("source", "PAYROLL")
     liquido_source = provenance.get("salario_liquido", {}).get("source", "PAYROLL")
 
+    offers_result = await db.execute(select(Offer).where(Offer.job_id == job_id))
+    offers = offers_result.scalars().all()
+    offers_sorted = sorted(
+        offers,
+        key=lambda offer: ["PRINCIPAL", "REDUZIDA", "SUPER"].index(offer.kind)
+        if offer.kind in ["PRINCIPAL", "REDUZIDA", "SUPER"]
+        else 999,
+    )
+
     response = FinalResultResponse(
         job_id=job_id,
         competencia_alvo=job.competencia_alvo or "2024-01",
@@ -390,6 +426,7 @@ async def get_job_result(
         ),
         parcelas_restantes_total=final_result.parcelas_restantes_total,
         alerts=final_result.alerts or [],
+        offers=[OfferResponse.model_validate(offer) for offer in offers_sorted],
     )
 
     return response

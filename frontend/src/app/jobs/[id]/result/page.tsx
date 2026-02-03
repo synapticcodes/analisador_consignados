@@ -163,6 +163,8 @@ export default function JobResultPage() {
   }
 
   const hasAlerts = result.alerts && result.alerts.length > 0
+  const hasOffers = result.offers && result.offers.length > 0
+  const singleOffer = hasOffers && result.offers!.length === 1
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 p-8">
@@ -307,6 +309,55 @@ export default function JobResultPage() {
             />
           </div>
         </div>
+
+        {/* Offers */}
+        {hasOffers && (
+          <div className="mb-8">
+            <h2 className="mb-4 text-xl font-semibold text-gray-900">
+              Ofertas do Produto
+            </h2>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {result.offers!.map((offer) => (
+                <Card key={offer.id} className="border-blue-100">
+                  <CardHeader>
+                    <CardTitle className="text-sm font-medium text-gray-600">
+                      {singleOffer
+                        ? 'Oferta Única'
+                        : offer.kind === 'PRINCIPAL'
+                          ? 'Oferta Principal'
+                          : offer.kind === 'REDUZIDA'
+                            ? 'Oferta Reduzida'
+                            : 'Super Oferta'}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <p className="text-base font-semibold text-gray-900">
+                      {offer.text}
+                    </p>
+                    <div className="text-xs text-gray-500">
+                      {offer.entry_value_cent !== undefined &&
+                        offer.entry_value_cent !== null && (
+                          <p>
+                            Entrada: {formatCurrency(offer.entry_value_cent)}{' '}
+                            {offer.entry_due_days
+                              ? `em ${offer.entry_due_days} dias`
+                              : 'no ato'}
+                          </p>
+                        )}
+                      <p>
+                        Total: {formatCurrency(offer.total_value_cent)}
+                      </p>
+                      <p>
+                        Parcelas: {offer.installment_count}x de{' '}
+                        {formatCurrency(offer.installment_value_cent)}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Calculation Methods */}
         {result.calculation_methods && (

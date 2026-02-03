@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.schemas.offer import OfferResponse
+
 
 class Evidence(BaseModel):
     """Evidência de um valor extraído."""
@@ -62,6 +64,9 @@ class FinalResultResponse(BaseModel):
 
     # Alertas e metadata
     alerts: list[str] = Field(default_factory=list, description="Alertas de inconsistências")
+
+    # Ofertas do produto
+    offers: list[OfferResponse] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 

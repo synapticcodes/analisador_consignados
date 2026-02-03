@@ -14,6 +14,7 @@ export interface CreateJobRequest {
   files: File[]
   renda_mensal_declarada?: string
   gasto_dividas_declarado?: string
+  product_id: string
 }
 
 // =============================================
@@ -57,6 +58,34 @@ export interface FinalResultResponseApi {
   divida_total_reduzida: MonetaryFieldApi
   parcelas_restantes_total: number | null
   alerts: string[] | null
+  offers: OfferApi[] | null
+}
+
+export interface OfferApi {
+  id: string
+  product_id: string
+  kind: string
+  installment_count: number
+  installment_value_cent: number
+  total_value_cent: number
+  entry_value_cent?: number | null
+  entry_due_days?: number | null
+  first_payment_days: number
+  payment_method: string
+  salary_liquid_used_cent: number
+  percent_used: number
+  text: string
+  created_at: string
+}
+
+export interface ProductApi {
+  id: string
+  name: string
+  base_value_cent: number
+  installments: number[]
+  payment_methods: string[]
+  active: boolean
+  created_at: string
 }
 
 export interface FinalResultResponse {
@@ -81,6 +110,25 @@ export interface FinalResultResponse {
   confidence_scores?: Record<string, number> | null
 
   created_at?: string
+
+  offers?: Offer[]
+}
+
+export interface Offer {
+  id: string
+  product_id: string
+  kind: string
+  installment_count: number
+  installment_value_cent: number
+  total_value_cent: number
+  entry_value_cent?: number | null
+  entry_due_days?: number | null
+  first_payment_days: number
+  payment_method: string
+  salary_liquid_used_cent: number
+  percent_used: number
+  text: string
+  created_at: string
 }
 
 export interface Alert {
