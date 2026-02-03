@@ -5,6 +5,8 @@ AnalysisJob schemas - Pydantic models for Job API validation
 from datetime import datetime
 from uuid import UUID
 
+import re
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -35,9 +37,18 @@ class AnalysisJobCreate(BaseModel):
         # Remove espaços e R$
         v = v.strip().replace("R$", "").replace(" ", "")
 
-        # Normalizar formato brasileiro: remover pontos (milhares) e converter vírgula (decimal)
-        v = v.replace(".", "")  # Remove separador de milhares
-        v = v.replace(",", ".")  # Converte vírgula decimal para ponto
+        # Normalizar formato brasileiro: suportar "." ou "," como decimal
+        if "," in v and "." in v:
+            # Formato pt-BR com milhares e decimal
+            v = v.replace(".", "")
+            v = v.replace(",", ".")
+        elif "," in v:
+            # Decimal com vírgula
+            v = v.replace(",", ".")
+        elif "." in v:
+            # Se parecer milhares (ex: 1.234.567), remover pontos
+            if re.match(r"^\d{1,3}(\.\d{3})+$", v):
+                v = v.replace(".", "")
 
         try:
             value = float(v)
