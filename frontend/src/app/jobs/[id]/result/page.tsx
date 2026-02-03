@@ -88,6 +88,47 @@ function OutputCard({
   )
 }
 
+function buildWhatsappMessage(offers: FinalResultResponse['offers']) {
+  if (!offers || offers.length === 0) return ''
+
+  const order = ['REDUZIDA', 'PRINCIPAL', 'SUPER']
+  const labels = [
+    '⭐ Recomendada (melhor equilíbrio mensal)',
+    'Intermediária (menor valor total)',
+    'Curta (quita mais rápido)',
+  ]
+
+  const orderedOffers = offers
+    .filter((offer) => order.includes(offer.kind))
+    .sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind))
+    .slice(0, 3)
+
+  if (orderedOffers.length === 0) return ''
+
+  const headerCount = orderedOffers.length
+  const header =
+    headerCount === 1
+      ? 'Separei 1 condição para você, toda no boleto e sem juros:'
+      : `Separei ${headerCount} condições para você, todas no boleto e sem juros:`
+
+  const offerBlocks = orderedOffers.map((offer, index) => {
+    const label = labels[index] ?? ''
+    const dayLabel = offer.first_payment_days === 1 ? 'dia' : 'dias'
+    const firstPayment =
+      offer.kind === 'SUPER' && offer.first_payment_days === 1
+        ? '1ª parcela amanhã'
+        : `1ª parcela em ${offer.first_payment_days} ${dayLabel}`
+    const details = `${offer.installment_count}x de ${formatCurrency(offer.installment_value_cent)} — ${firstPayment}`
+    return [label, details].filter(Boolean).join('\n')
+  })
+
+  const closing =
+    'A maioria das pessoas com renda parecida com a sua opta pela recomendada, porque fica mais confortável no mês.\n' +
+    'Qual faz mais sentido pra você?'
+
+  return [header, ...offerBlocks, closing].join('\n\n')
+}
+
 // =============================================
 // Main Component
 // =============================================
@@ -165,6 +206,8 @@ export default function JobResultPage() {
   const hasAlerts = result.alerts && result.alerts.length > 0
   const hasOffers = result.offers && result.offers.length > 0
   const singleOffer = hasOffers && result.offers!.length === 1
+  const whatsappMessage = buildWhatsappMessage(result.offers)
+  const shouldShowWhatsappMessage = hasOffers && whatsappMessage.length > 0
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 p-8">
@@ -357,6 +400,42 @@ export default function JobResultPage() {
               ))}
             </div>
           </div>
+        )}
+
+        {/* WhatsApp Message */}
+        {shouldShowWhatsappMessage && (
+          <Card className="mb-8 border-emerald-100">
+            <CardHeader>
+              <CardTitle className="text-base font-semibold text-gray-900">
+                Mensagem para WhatsApp
+              </CardTitle>
+              <CardDescription>
+                Texto pronto para copiar e enviar
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <textarea
+                readOnly
+                value={whatsappMessage}
+                className="min-h-[120px] w-full resize-none rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700"
+              />
+              <div className="flex justify-end">
+                <Button
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(whatsappMessage)
+                      toast.success('Mensagem copiada')
+                    } catch (error) {
+                      console.error('Error copying message:', error)
+                      toast.error('Não foi possível copiar a mensagem')
+                    }
+                  }}
+                >
+                  Copiar
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* Calculation Methods */}
