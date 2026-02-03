@@ -402,6 +402,7 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                 loan_results=loan_results,
                 doc_sources=doc_sources,
                 renda_mensal_declarada_cent=job.renda_mensal_declarada_cent,
+                gasto_dividas_declarado_cent=job.gasto_dividas_declarado_cent,
             )
 
             # Atualizar competência alvo no job
@@ -482,6 +483,13 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                 provenance={
                     "salario_bruto": {"source": compute_result.bruto_source},
                     "salario_liquido": {"source": compute_result.liquido_source},
+                    "total_descontos": {
+                        "source": (
+                            consolidated.total_descontos.source.value
+                            if consolidated.total_descontos
+                            else None
+                        )
+                    },
                 },
                 alerts=alerts_payload,
             )

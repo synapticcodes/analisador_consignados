@@ -92,6 +92,7 @@ class ConsolidatorService:
         },
         "total_descontos": {
             DocumentSource.PAYROLL_SALARY_STATEMENT: SourcePriority.HIGHEST,
+            DocumentSource.DECLARADO: SourcePriority.LOW,
         },
         "consignado_mensal": {
             DocumentSource.PAYROLL_SALARY_STATEMENT: SourcePriority.HIGHEST,
@@ -391,6 +392,7 @@ class ConsolidatorService:
         loan_results: list[LoanContractResult],
         doc_sources: dict[str, DocumentSource],  # Mapeia document_id -> fonte
         renda_mensal_declarada_cent: int | None = None,
+        gasto_dividas_declarado_cent: int | None = None,
     ) -> ConsolidatedData:
         """
         Consolida todos os dados de múltiplas fontes.
@@ -400,6 +402,7 @@ class ConsolidatorService:
             loan_results: Resultados de extração de contratos
             doc_sources: Mapa de document_id para tipo de fonte
             renda_mensal_declarada_cent: Renda declarada pelo usuário (fallback)
+            gasto_dividas_declarado_cent: Gasto declarado pelo usuário (fallback)
 
         Returns:
             Dados consolidados com alertas
@@ -477,6 +480,9 @@ class ConsolidatorService:
         liquido_candidates = []
         descontos_candidates = []
         linhas_consignado_all = []
+        has_bruto_extracted = False
+        has_liquido_extracted = False
+        has_descontos_extracted = False
 
         for doc_id, source, result in renda_entries:
             if renda_competencia:
@@ -486,6 +492,7 @@ class ConsolidatorService:
 
             # Salário bruto
             if result.salario_bruto.value is not None:
+                has_bruto_extracted = True
                 bruto_candidates.append(
                     ConsolidatedValue(
                         value_cent=int(result.salario_bruto.value * 100),
@@ -498,6 +505,7 @@ class ConsolidatorService:
 
             # Salário líquido
             if result.salario_liquido.value is not None:
+                has_liquido_extracted = True
                 liquido_candidates.append(
                     ConsolidatedValue(
                         value_cent=int(result.salario_liquido.value * 100),
@@ -510,6 +518,7 @@ class ConsolidatorService:
 
             # Total descontos
             if result.total_descontos.value is not None:
+                has_descontos_extracted = True
                 descontos_candidates.append(
                     ConsolidatedValue(
                         value_cent=int(result.total_descontos.value * 100),
@@ -528,10 +537,30 @@ class ConsolidatorService:
                 linhas_consignado_all.extend(result.linhas_consignado)
 
         # Fallback: renda declarada (RF-009 FA-001)
-        if not liquido_candidates and renda_mensal_declarada_cent:
+        if (
+            not has_liquido_extracted
+            and renda_mensal_declarada_cent
+            and not (has_bruto_extracted and has_descontos_extracted)
+        ):
             liquido_candidates.append(
                 ConsolidatedValue(
                     value_cent=renda_mensal_declarada_cent,
+                    source=DocumentSource.DECLARADO,
+                    method="USER_DECLARED",
+                    document_id=None,
+                    confidence=0.5,
+                )
+            )
+
+        # Fallback: gasto declarado (total de descontos)
+        if (
+            not has_descontos_extracted
+            and gasto_dividas_declarado_cent
+            and not (has_bruto_extracted and has_liquido_extracted)
+        ):
+            descontos_candidates.append(
+                ConsolidatedValue(
+                    value_cent=gasto_dividas_declarado_cent,
                     source=DocumentSource.DECLARADO,
                     method="USER_DECLARED",
                     document_id=None,

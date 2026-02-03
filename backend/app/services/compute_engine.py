@@ -144,30 +144,47 @@ class ComputeEngine:
         # 1. Calcular total_descontos_cent (RF-010 CA-002)
         descontos_method = None
         if perfil_dados == "EXTRATO_ONLY":
-            bruto_cent = 0
-            liquido_cent = 0
-            descontos_cent = 0
-            descontos_method = ComputeMethod.NOT_APPLICABLE
-            bruto_source = "NOT_APPLICABLE"
-            liquido_source = "NOT_APPLICABLE"
-        elif descontos_cent is None and bruto_cent is not None and liquido_cent is not None:
-            # Calcular por diferença
-            descontos_cent = bruto_cent - liquido_cent
-            descontos_method = ComputeMethod.DIFFERENCE
+            has_declared_liquido = (
+                consolidated.salario_liquido
+                and consolidated.salario_liquido.source == DocumentSource.DECLARADO
+            )
+            has_declared_descontos = (
+                consolidated.total_descontos
+                and consolidated.total_descontos.source == DocumentSource.DECLARADO
+            )
+            if not has_declared_liquido and not has_declared_descontos:
+                bruto_cent = 0
+                liquido_cent = 0
+                descontos_cent = 0
+                descontos_method = ComputeMethod.NOT_APPLICABLE
+                bruto_source = "NOT_APPLICABLE"
+                liquido_source = "NOT_APPLICABLE"
 
-            # Validar invariante: descontos não pode ser negativo
-            if descontos_cent < 0:
-                alerts.append(
-                    ConsolidatedAlert(
-                        field_name="total_descontos",
-                        severity="ERROR",
-                        message=f"Descontos calculado é negativo: {descontos_cent/100:.2f} (bruto < líquido)",
+        if descontos_method is None:
+            if descontos_cent is None and bruto_cent is not None and liquido_cent is not None:
+                # Calcular por diferença
+                descontos_cent = bruto_cent - liquido_cent
+                descontos_method = ComputeMethod.DIFFERENCE
+
+                # Validar invariante: descontos não pode ser negativo
+                if descontos_cent < 0:
+                    alerts.append(
+                        ConsolidatedAlert(
+                            field_name="total_descontos",
+                            severity="ERROR",
+                            message=f"Descontos calculado é negativo: {descontos_cent/100:.2f} (bruto < líquido)",
+                        )
                     )
-                )
-                descontos_cent = None
-                descontos_method = None
-        elif descontos_cent is not None:
-            descontos_method = ComputeMethod.EXTRACTED
+                    descontos_cent = None
+                    descontos_method = None
+            elif descontos_cent is not None:
+                if (
+                    consolidated.total_descontos
+                    and consolidated.total_descontos.source == DocumentSource.DECLARADO
+                ):
+                    descontos_method = ComputeMethod.USER_DECLARED
+                else:
+                    descontos_method = ComputeMethod.EXTRACTED
 
         # 1a. Calcular dívida mensal e dívida mensal reduzida (novas métricas)
         divida_mensal_cent = None

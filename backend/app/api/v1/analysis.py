@@ -349,6 +349,7 @@ async def get_job_result(
 
     bruto_source = provenance.get("salario_bruto", {}).get("source", "PAYROLL")
     liquido_source = provenance.get("salario_liquido", {}).get("source", "PAYROLL")
+    descontos_source = provenance.get("total_descontos", {}).get("source", bruto_source)
 
     offers_result = await db.execute(select(Offer).where(Offer.job_id == job_id))
     offers = offers_result.scalars().all()
@@ -374,12 +375,12 @@ async def get_job_result(
             currency="BRL",
             source=liquido_source,
             evidence=dummy_evidence if final_result.salario_liquido_cent else None,
-            method="EXTRACTED",
+            method="USER_DECLARED" if liquido_source == "DECLARADO" else "EXTRACTED",
         ),
         total_descontos=MonetaryField(
             value=cents_to_currency(final_result.total_descontos_cent),
             currency="BRL",
-            source=bruto_source,  # Mesma fonte que bruto
+            source=descontos_source,
             evidence=dummy_evidence if final_result.total_descontos_cent else None,
             method=calculation_methods.get("total_descontos", "COMPUTED"),
         ),
