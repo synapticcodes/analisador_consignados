@@ -13,19 +13,28 @@ Exibir uma mensagem pronta (uma oferta por linha) na tela de resultados, abaixo 
 
 ## UX e Comportamento
 - O card “Mensagem para WhatsApp” aparece abaixo do bloco “Ofertas do Produto”.
-- A mensagem é uma oferta por linha, sem rótulos e sem linha de abertura.
-- Cada linha contém: texto da oferta + total + parcelas + entrada (se houver).
+- A mensagem tem uma linha de abertura fixa e duas linhas finais de fechamento.
+- Cada oferta ocupa 2 linhas: rótulo + parcelas/1ª parcela.
+- Ordem das ofertas: Reduzida, Principal, Super.
 - Se houver menos de 3 ofertas, listar apenas as existentes.
 - Se não houver ofertas, não renderizar o card.
 
 ## Formatação da Mensagem
-- Estrutura base: `{offer.text} — Total: R$ X — Nx de R$ Y — Entrada: R$ Z em D dias`.
-- Entrada é opcional; se `entry_value_cent` existir e `entry_due_days` for `null` ou `0`, usar “no ato”.
-- Todos os valores devem usar `formatCurrency`.
+Linha de abertura: `Separei N condições para você, todas no boleto e sem juros:`
+
+Para cada oferta (duas linhas):
+Rótulo: `⭐ Recomendada (melhor equilíbrio mensal)` / `Intermediária (menor valor total)` / `Curta (quita mais rápido)`
+Detalhes: `Nx de R$ Y — 1ª parcela em D dias` (para SUPER com 1 dia, usar `1ª parcela amanhã`)
+
+Fechamento:
+`A maioria das pessoas com renda parecida com a sua opta pela recomendada, porque fica mais confortável no mês.`
+`Qual faz mais sentido pra você?`
+
+Usar `formatCurrency` para o valor da parcela e `first_payment_days` para a 1ª parcela.
 
 ## Implementação (alto nível)
 - Função local `buildWhatsappMessage(offers)` para gerar o texto.
-- Limitar a 3 ofertas por `offers.slice(0, 3)`.
+- Ordenar por tipo: `REDUZIDA`, `PRINCIPAL`, `SUPER` e limitar a 3.
 - Renderizar o texto em `<textarea readOnly>` ou `<pre>` estilizado.
 - Botão “Copiar” usa `navigator.clipboard.writeText(message)` com `toast` para sucesso/erro.
 

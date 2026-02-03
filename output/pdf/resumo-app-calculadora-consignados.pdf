@@ -1,0 +1,116 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+6 0 obj
+<< /Length 2013 >>
+stream
+BT
+/F2 16 Tf
+1 0 0 1 48 800 Tm
+(Resumo - Calculadora de Consignados) Tj
+/F2 12 Tf
+1 0 0 1 48 778 Tm
+(O que e) Tj
+/F1 10 Tf
+1 0 0 1 48 762 Tm
+(Sistema que extrai dados de PDFs \(contracheques, INSS, extratos de) Tj
+/F1 10 Tf
+1 0 0 1 48 748 Tm
+(consignado\) e calcula indicadores financeiros com validacao deterministica.) Tj
+/F2 12 Tf
+1 0 0 1 48 730 Tm
+(Para quem) Tj
+/F1 10 Tf
+1 0 0 1 48 714 Tm
+(Persona principal: Nao encontrado no repo.) Tj
+/F2 12 Tf
+1 0 0 1 48 696 Tm
+(O que faz) Tj
+/F1 10 Tf
+1 0 0 1 48 680 Tm
+(- Upload de 1 a 3 PDFs por job.) Tj
+/F1 10 Tf
+1 0 0 1 48 666 Tm
+(- Processamento assincrono com progresso de analise.) Tj
+/F1 10 Tf
+1 0 0 1 48 652 Tm
+(- Roteamento e extracao via LLM para multiplos tipos de documentos.) Tj
+/F1 10 Tf
+1 0 0 1 48 638 Tm
+(- Validacao deterministica com evidencias por valor extraido.) Tj
+/F1 10 Tf
+1 0 0 1 48 624 Tm
+(- Consolidacao por competencia e regras de prioridade de fontes.) Tj
+/F1 10 Tf
+1 0 0 1 48 610 Tm
+(- Calculos financeiros em centavos \(BIGINT\) com resultados padronizados.) Tj
+/F1 10 Tf
+1 0 0 1 48 596 Tm
+(- API de status/resultados e UI para upload e visualizacao.) Tj
+/F2 12 Tf
+1 0 0 1 48 578 Tm
+(Como funciona \(arquitetura\)) Tj
+/F1 10 Tf
+1 0 0 1 48 562 Tm
+(Componentes: Frontend Next.js, API FastAPI, Celery workers, Redis,) Tj
+/F1 10 Tf
+1 0 0 1 48 548 Tm
+(PostgreSQL, MinIO/S3, LLM OpenAI.) Tj
+/F1 10 Tf
+1 0 0 1 48 534 Tm
+(Fluxo: UI -> API -> fila Celery -> extracao PDF -> roteamento LLM ->) Tj
+/F1 10 Tf
+1 0 0 1 48 520 Tm
+(extracao LLM -> evidence gate -> selecao de competencia -> consolidacao) Tj
+/F1 10 Tf
+1 0 0 1 48 506 Tm
+(-> compute engine -> resultado -> DB/storage -> UI.) Tj
+/F2 12 Tf
+1 0 0 1 48 488 Tm
+(Como rodar \(minimo\)) Tj
+/F1 10 Tf
+1 0 0 1 48 472 Tm
+(1. cp .env.example .env \(defina OPENAI_API_KEY e SECRET_KEY\).) Tj
+/F1 10 Tf
+1 0 0 1 48 458 Tm
+(2. make setup) Tj
+/F1 10 Tf
+1 0 0 1 48 444 Tm
+(3. make up) Tj
+/F1 10 Tf
+1 0 0 1 48 430 Tm
+(4. make migrate) Tj
+/F1 10 Tf
+1 0 0 1 48 416 Tm
+(5. Acesse http://localhost:3000) Tj
+ET
+endstream
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000257 00000 n 
+0000000327 00000 n 
+0000000402 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+2467
+%%EOF
