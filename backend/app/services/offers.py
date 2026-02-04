@@ -44,6 +44,7 @@ DUE_RANGES_BY_FAIXA: dict[str, dict[str, tuple[int, int]]] = {
 }
 
 DUE_RANGE_FAIXA_C = (10, 15)
+REDUZIDA_TARGET_DAYS = 10
 
 TOTAL_VARIATION_BY_KIND: dict[str, int] = {
     OfferKind.PRINCIPAL.value: 25,
@@ -222,8 +223,12 @@ def _resolve_due_days(
     due_principal = _max_allowed_days(p_min, p_max, principal_count)
 
     max_reduzida = _max_allowed_days(r_min, r_max, reduzida_count)
-    mid_reduzida = r_min + (r_max - r_min) // 2
-    due_reduzida = min(max_reduzida, mid_reduzida)
+    target_reduzida = REDUZIDA_TARGET_DAYS
+    if target_reduzida < r_min:
+        target_reduzida = r_min
+    elif target_reduzida > r_max:
+        target_reduzida = r_max
+    due_reduzida = min(max_reduzida, target_reduzida)
     if due_reduzida >= due_principal:
         due_reduzida = min(max_reduzida, due_principal - 1)
     if due_reduzida < r_min:
