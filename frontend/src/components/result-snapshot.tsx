@@ -199,11 +199,15 @@ const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
         <footer className="mt-8 border-t border-slate-200 pt-6 text-xs text-slate-600">
           <div className="flex items-start justify-between gap-6">
             <div>
-              <p className="font-semibold text-slate-800">Como calculamos</p>
+              <p className="font-semibold text-slate-800">Como chegamos aos números</p>
               <p className="mt-1">
-                Dívida mensal = 90% do total de descontos
+                Usamos seu contracheque e o saldo dos consignados para estimar
+                o peso mensal e projetar um cenário baseado em acordos já
+                obtidos com perfis semelhantes ao seu.
               </p>
-              <p>Redução estimada = 25% (mensal e total)</p>
+              <p className="mt-2">
+                Condições e descontos variam conforme credor e perfil.
+              </p>
               {missingSalaryInfo && (
                 <p className="mt-2 text-slate-500">
                   Para completar salários e descontos, envie contracheque ou
@@ -211,9 +215,7 @@ const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
                 </p>
               )}
             </div>
-            <div className="max-w-xs text-right text-slate-500">
-              Condições e descontos variam conforme credor e perfil.
-            </div>
+            <div className="max-w-xs text-right text-slate-500" />
           </div>
         </footer>
       </div>
