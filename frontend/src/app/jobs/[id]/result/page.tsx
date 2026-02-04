@@ -4,9 +4,11 @@
  * Job Results Page - Visualização dos resultados finais
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { toast } from 'sonner'
+import { toPng } from 'html-to-image'
+import jsPDF from 'jspdf'
 import {
   DollarSign,
   TrendingDown,
@@ -29,6 +31,7 @@ import {
   CardContent,
 } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import ResultSnapshot from '@/components/result-snapshot'
 import { getJobResult } from '@/lib/api'
 import {
   type FinalResultResponse,
@@ -140,6 +143,15 @@ export default function JobResultPage() {
 
   const [result, setResult] = useState<FinalResultResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [clientName, setClientName] = useState('')
+  const [exporting, setExporting] = useState<'pdf' | 'png' | null>(null)
+  const snapshotRef = useRef<HTMLDivElement | null>(null)
+
+  const dateLabel = useMemo(
+    () => new Date().toLocaleDateString('pt-BR'),
+    []
+  )
+  const fileDate = useMemo(() => new Date().toISOString().slice(0, 10), [])
 
   useEffect(() => {
     if (!jobId) {
@@ -209,6 +221,71 @@ export default function JobResultPage() {
   const whatsappMessage = buildWhatsappMessage(result.offers)
   const shouldShowWhatsappMessage = hasOffers && whatsappMessage.length > 0
 
+  const baseFileName = `diagnostico-${jobId}-${fileDate}`
+
+  const ensureSnapshot = () => {
+    if (!snapshotRef.current) {
+      toast.error('Não foi possível gerar o arquivo agora.')
+      return null
+    }
+    return snapshotRef.current
+  }
+
+  const handleExportPng = async () => {
+    const snapshot = ensureSnapshot()
+    if (!snapshot) return
+
+    setExporting('png')
+    try {
+      const dataUrl = await toPng(snapshot, {
+        backgroundColor: '#ffffff',
+        cacheBust: true,
+        pixelRatio: 2,
+      })
+
+      const link = document.createElement('a')
+      link.href = dataUrl
+      link.download = `${baseFileName}.png`
+      link.click()
+      toast.success('PNG gerado com sucesso')
+    } catch (error) {
+      console.error('Error exporting PNG:', error)
+      toast.error('Erro ao gerar PNG')
+    } finally {
+      setExporting(null)
+    }
+  }
+
+  const handleExportPdf = async () => {
+    const snapshot = ensureSnapshot()
+    if (!snapshot) return
+
+    setExporting('pdf')
+    try {
+      const dataUrl = await toPng(snapshot, {
+        backgroundColor: '#ffffff',
+        cacheBust: true,
+        pixelRatio: 2,
+      })
+
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      })
+      const pageWidth = pdf.internal.pageSize.getWidth()
+      const pageHeight = pdf.internal.pageSize.getHeight()
+      pdf.addImage(dataUrl, 'PNG', 0, 0, pageWidth, pageHeight, undefined, 'FAST')
+      pdf.save(`${baseFileName}.pdf`)
+      toast.success('PDF gerado com sucesso')
+    } catch (error) {
+      console.error('Error exporting PDF:', error)
+      toast.error('Erro ao gerar PDF')
+    } finally {
+      setExporting(null)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 p-8">
       <div className="mx-auto max-w-7xl">
@@ -237,6 +314,48 @@ export default function JobResultPage() {
             </Badge>
           </div>
         </div>
+
+        {/* Export Panel */}
+        <Card className="mb-8 border-blue-100">
+          <CardHeader>
+            <CardTitle className="text-base font-semibold text-gray-900">
+              Exportar diagnóstico
+            </CardTitle>
+            <CardDescription>
+              Gere o PDF ou a imagem para compartilhar com o cliente
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="text-sm font-medium text-gray-700">
+                  Nome do cliente (opcional)
+                </label>
+                <input
+                  value={clientName}
+                  onChange={(event) => setClientName(event.target.value)}
+                  placeholder="Ex.: Maria da Silva"
+                  className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+            </div>
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <Button onClick={handleExportPdf} disabled={exporting !== null}>
+                {exporting === 'pdf' ? 'Gerando PDF...' : 'Baixar PDF'}
+              </Button>
+              <Button
+                onClick={handleExportPng}
+                variant="secondary"
+                disabled={exporting !== null}
+              >
+                {exporting === 'png' ? 'Gerando PNG...' : 'Baixar PNG'}
+              </Button>
+              <span className="text-xs text-gray-500">
+                Data do relatório: {dateLabel}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Alerts */}
         {hasAlerts && (
@@ -513,6 +632,18 @@ export default function JobResultPage() {
             Todos os valores foram validados deterministicamente com evidências rastreáveis
           </p>
         </div>
+      </div>
+
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed left-[-9999px] top-0"
+      >
+        <ResultSnapshot
+          ref={snapshotRef}
+          result={result}
+          clientName={clientName}
+          dateLabel={dateLabel}
+        />
       </div>
     </div>
   )

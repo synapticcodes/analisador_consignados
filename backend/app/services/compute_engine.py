@@ -186,7 +186,25 @@ class ComputeEngine:
                 else:
                     descontos_method = ComputeMethod.EXTRACTED
 
-        # 1a. Calcular dívida mensal e dívida mensal reduzida (novas métricas)
+        # 1a. Calcular salario_bruto_cent quando líquido + descontos existem
+        if bruto_cent is None and liquido_cent is not None and descontos_cent is not None:
+            bruto_cent = liquido_cent + descontos_cent
+            if bruto_source is None:
+                if liquido_source is not None:
+                    bruto_source = liquido_source
+                elif consolidated.total_descontos:
+                    bruto_source = consolidated.total_descontos.source.value
+                else:
+                    bruto_source = "CALCULATED"
+            alerts.append(
+                ConsolidatedAlert(
+                    field_name="salario_bruto",
+                    severity="WARN",
+                    message="Salário bruto calculado por soma (líquido + descontos).",
+                )
+            )
+
+        # 1b. Calcular dívida mensal e dívida mensal reduzida (novas métricas)
         divida_mensal_cent = None
         divida_mensal_reduzida_cent = None
         divida_mensal_method = None
@@ -198,7 +216,7 @@ class ComputeEngine:
             divida_mensal_reduzida_cent = (divida_mensal_cent * 25) // 100
             divida_mensal_reduzida_method = ComputeMethod.PERCENTAGE_25
 
-        # 1b. Calcular salario_liquido_cent quando base e descontos existem
+        # 1c. Calcular salario_liquido_cent quando base e descontos existem
         if (
             liquido_cent is None
             and bruto_cent is not None
