@@ -6,6 +6,7 @@ Endpoints para criar e consultar jobs de análise de documentos.
 Baseado em PRD RF-013, RF-014, RF-015.
 """
 
+import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +27,8 @@ from app.schemas.analysis_job import AnalysisJobCreate, AnalysisJobResponse
 from app.schemas.final_result import Evidence, FinalResultResponse, MonetaryField
 from app.schemas.offer import OfferResponse
 router = APIRouter(prefix="/analysis", tags=["Analysis"])
+
+logger = logging.getLogger(__name__)
 
 
 # ==============================================
@@ -222,11 +225,17 @@ async def create_analysis_job(
         from app.workers.tasks import enqueue_job
 
         task_id = await enqueue_job(job_id)
-        print(f"Job {job_id} enqueued with task_id: {task_id}")
+        logger.info("Job %s enqueued with task_id: %s", job_id, task_id)
     except Exception as e:
         # Se falhar ao enfileirar, logar mas não falhar o request
-        # O job ficará PENDING e pode ser re-enfileirado manualmente
-        print(f"Failed to enqueue job {job_id}: {e}")
+        # O job ficará FAILED e pode ser re-enfileirado manualmente
+        logger.exception("Failed to enqueue job %s", job_id)
+        job.status = JobStatus.FAILED.value
+        job.error_code = "QUEUE_ERROR"
+        job.error_message = str(e)[:500]
+        job.completed_at = datetime.now()
+        await db.commit()
+        await db.refresh(job)
 
     return AnalysisJobResponse.model_validate(job)
 
