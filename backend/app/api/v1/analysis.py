@@ -8,7 +8,7 @@ Baseado em PRD RF-013, RF-014, RF-015.
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
 
@@ -180,8 +180,8 @@ async def create_analysis_job(
         product_id=product_uuid,
         renda_mensal_declarada_cent=renda_mensal_declarada_cent,
         gasto_dividas_declarado_cent=gasto_dividas_declarado_cent,
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
     )
 
     db.add(job)
@@ -233,7 +233,7 @@ async def create_analysis_job(
         job.status = JobStatus.FAILED.value
         job.error_code = "QUEUE_ERROR"
         job.error_message = str(e)[:500]
-        job.completed_at = datetime.now()
+        job.completed_at = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(job)
 

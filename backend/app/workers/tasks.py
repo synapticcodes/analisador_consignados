@@ -6,7 +6,7 @@ Tasks assíncronas para processamento de jobs de análise.
 """
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
@@ -88,7 +88,7 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
     Returns:
         Dicionário com resultado
     """
-    start_time = datetime.now()
+    start_time = datetime.now(timezone.utc)
 
     engine, session_maker = create_engine_and_session()
     try:
@@ -500,10 +500,10 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
 
             # 8. Atualizar job para SUCCEEDED
             job.status = JobStatus.SUCCEEDED.value
-            job.completed_at = datetime.now()
+            job.completed_at = datetime.now(timezone.utc)
 
             # Calcular tempo de processamento
-            processing_time = (datetime.now() - start_time).total_seconds() * 1000
+            processing_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             job.processing_time_ms = int(processing_time)
 
             await db.commit()
@@ -527,9 +527,9 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                     job.status = JobStatus.FAILED.value
                     job.error_code = "PROCESSING_ERROR"
                     job.error_message = str(e)[:500]  # Truncar mensagem
-                    job.completed_at = datetime.now()
+                    job.completed_at = datetime.now(timezone.utc)
 
-                    processing_time = (datetime.now() - start_time).total_seconds() * 1000
+                    processing_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
                     job.processing_time_ms = int(processing_time)
 
                     await db.commit()

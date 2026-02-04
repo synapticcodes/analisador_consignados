@@ -347,6 +347,7 @@ export default function JobResultPage() {
                 onClick={handleExportPng}
                 variant="secondary"
                 disabled={exporting !== null}
+                className="bg-green-800 hover:bg-green-900 focus-visible:ring-green-800"
               >
                 {exporting === 'png' ? 'Gerando PNG...' : 'Baixar PNG'}
               </Button>
@@ -413,7 +414,7 @@ export default function JobResultPage() {
               title="Salário Bruto"
               value={result.salario_bruto_cent}
               color="blue"
-              description="Remuneração total antes dos descontos"
+              description="Salário bruto do lead antes dos descontos"
             />
 
             {/* Salário Líquido */}
@@ -422,7 +423,7 @@ export default function JobResultPage() {
               title="Salário Líquido"
               value={result.salario_liquido_cent}
               color="green"
-              description="Valor recebido após descontos"
+              description="Salário líquido do lead antes dos descontos"
             />
 
             {/* Total Descontos */}
@@ -440,7 +441,7 @@ export default function JobResultPage() {
               title="Dívida Mensal"
               value={result.divida_mensal_cent}
               color="blue"
-              description="90% do total de descontos"
+              description="Desconto mensal atual no salário do lead"
             />
 
             {/* Dívida Mensal Reduzida */}
@@ -449,7 +450,7 @@ export default function JobResultPage() {
               title="Dívida Mensal Reduzida"
               value={result.divida_mensal_reduzida_cent}
               color="green"
-              description="25% da dívida mensal"
+              description="Valor estimado que passará a ser descontado do lead"
             />
 
             {/* Dívida Total Consignada */}
@@ -458,7 +459,7 @@ export default function JobResultPage() {
               title="Dívida Total Consignada"
               value={result.divida_total_consignada_cent}
               color="purple"
-              description="Saldo devedor total"
+              description="Total da soma das dívidas de consignado do lead"
             />
 
             {/* Dívida Total Reduzida */}
@@ -467,7 +468,7 @@ export default function JobResultPage() {
               title="Dívida Total Reduzida"
               value={result.divida_total_reduzida_cent}
               color="green"
-              description="25% da dívida total consignada"
+              description="Valor estimado reduzido das dívidas de consignado do lead"
             />
           </div>
         </div>

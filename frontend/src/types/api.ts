@@ -182,12 +182,19 @@ export function parseCurrency(value: string): string {
  * Formata data ISO para formato brasileiro
  */
 export function formatDate(isoDate: string): string {
-  return new Date(isoDate).toLocaleString('pt-BR', {
+  const date = new Date(isoDate)
+  if (Number.isNaN(date.getTime())) {
+    return '--'
+  }
+
+  return date.toLocaleString('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
   })
 }
 
