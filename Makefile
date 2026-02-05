@@ -1,13 +1,15 @@
-.PHONY: help setup up down restart logs clean test
+.PHONY: help setup up down restart logs clean test up-v2 down-v2 restart-v2 logs-v2 ps-v2 migrate-v2 clean-v2 reset-v2
 
 # ==============================================
 # Calculadora de Consignados - Makefile
 # ==============================================
 # Comandos úteis para desenvolvimento
 
+COMPOSE_V2 = docker-compose -f docker-compose.yml -f docker-compose.v2.yml
+
 help: ## Mostrar esta ajuda
 	@echo "Comandos disponíveis:"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 setup: ## Setup inicial do projeto (criar .env, instalar deps)
 	@echo "🔧 Setup inicial..."
@@ -34,15 +36,36 @@ up: ## Subir todos os serviços
 	@echo "   Backend:   http://localhost:8000/docs"
 	@echo "   MinIO:     http://localhost:9001"
 
+up-v2: ## Subir stack isolada da v2
+	@echo "🚀 Subindo serviços da v2..."
+	$(COMPOSE_V2) up -d
+	@echo "⏳ Aguardando serviços ficarem prontos..."
+	@sleep 5
+	$(COMPOSE_V2) ps
+	@echo "✅ Serviços v2 rodando!"
+	@echo "   Frontend v2: http://localhost:3001"
+	@echo "   Backend v2:  http://localhost:8001/docs"
+	@echo "   MinIO v2:    http://localhost:9011"
+
 down: ## Parar todos os serviços
 	@echo "🛑 Parando serviços..."
 	docker-compose down
 	@echo "✅ Serviços parados!"
 
+down-v2: ## Parar stack isolada da v2
+	@echo "🛑 Parando serviços da v2..."
+	$(COMPOSE_V2) down
+	@echo "✅ Serviços v2 parados!"
+
 restart: down up ## Reiniciar todos os serviços
+
+restart-v2: down-v2 up-v2 ## Reiniciar stack isolada da v2
 
 logs: ## Ver logs de todos os serviços
 	docker-compose logs -f
+
+logs-v2: ## Ver logs da stack isolada da v2
+	$(COMPOSE_V2) logs -f
 
 logs-backend: ## Ver logs do backend
 	docker-compose logs -f backend
@@ -55,6 +78,9 @@ logs-worker: ## Ver logs do celery worker
 
 ps: ## Ver status dos serviços
 	docker-compose ps
+
+ps-v2: ## Ver status da stack isolada da v2
+	$(COMPOSE_V2) ps
 
 shell-backend: ## Abrir shell no container do backend
 	docker-compose exec backend bash
@@ -69,6 +95,11 @@ migrate: ## Rodar migrations do banco
 	@echo "🔄 Aplicando migrations..."
 	docker-compose exec backend sh -lc "PYTHONPATH=/app alembic upgrade head"
 	@echo "✅ Migrations aplicadas!"
+
+migrate-v2: ## Rodar migrations no backend da v2
+	@echo "🔄 Aplicando migrations da v2..."
+	$(COMPOSE_V2) exec backend sh -lc "PYTHONPATH=/app alembic upgrade head"
+	@echo "✅ Migrations da v2 aplicadas!"
 
 migrate-create: ## Criar nova migration (use: make migrate-create MSG="descrição")
 	@echo "📝 Criando migration..."
@@ -109,8 +140,16 @@ clean: ## Limpar containers, volumes e cache
 	docker-compose down -v
 	@echo "✅ Limpeza concluída!"
 
+clean-v2: ## Limpar stack isolada da v2 (inclui volumes)
+	@echo "🧹 Limpando v2..."
+	$(COMPOSE_V2) down -v
+	@echo "✅ Limpeza v2 concluída!"
+
 reset: clean up migrate ## Reset completo (limpa tudo e recria)
 	@echo "♻️  Reset completo realizado!"
+
+reset-v2: clean-v2 up-v2 migrate-v2 ## Reset completo da stack isolada da v2
+	@echo "♻️  Reset completo da v2 realizado!"
 
 build: ## Build das imagens Docker
 	@echo "🏗️  Buildando imagens..."
