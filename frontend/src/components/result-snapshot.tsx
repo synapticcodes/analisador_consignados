@@ -1,223 +1,134 @@
 import { forwardRef } from 'react'
 
-import { type FinalResultResponse, formatCurrency } from '@/types/api'
+import { ConsignadoBreakdown } from '@/components/pdf-sections/consignado-breakdown'
+import { CostBreakdownSection } from '@/components/pdf-sections/cost-breakdown-section'
+import { ContractsTable } from '@/components/pdf-sections/contracts-table'
+import { CoverSummary } from '@/components/pdf-sections/cover-summary'
+import { DebtMapSection } from '@/components/pdf-sections/debt-map-section'
+import { INSSMarginSection } from '@/components/pdf-sections/inss-margin-section'
+import { MethodologyFooter } from '@/components/pdf-sections/methodology-footer'
+import { OffersSection } from '@/components/pdf-sections/offers-section'
+import { SavingsSection } from '@/components/pdf-sections/savings-section'
+import { TimelineSection } from '@/components/pdf-sections/timeline-section'
+import { type FinalResultResponse } from '@/types/api'
 
 type ResultSnapshotProps = {
   result: FinalResultResponse
   clientName?: string
   dateLabel: string
+  whatsappCtaText?: string
+  enablePhase2?: boolean
+  enablePhase3?: boolean
+}
+
+function PageWrapper({
+  pageNumber,
+  totalPages,
+  children,
+}: {
+  pageNumber: number
+  totalPages: number
+  children: React.ReactNode
+}) {
+  return (
+    <div
+      data-pdf-page="true"
+      style={{ width: 794, height: 1123 }}
+      className="mb-4 flex flex-col bg-white p-10 text-slate-900"
+    >
+      <div className="min-h-0 flex-1">{children}</div>
+      <footer className="mt-4 border-t border-slate-200 pt-3 text-right text-xs text-slate-500">
+        Página {pageNumber} de {totalPages}
+      </footer>
+    </div>
+  )
 }
 
 const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
-  ({ result, clientName, dateLabel }, ref) => {
-    const normalizedName = clientName?.trim()
+  ({
+    result,
+    clientName,
+    dateLabel,
+    whatsappCtaText = 'WhatsApp: (11) 99999-9999',
+    enablePhase2 = true,
+    enablePhase3 = true,
+  }, ref) => {
+    const hasContracts = (result.loan_contracts?.length ?? 0) > 0
+    const hasConsignadoLines = (result.consignado_lines?.length ?? 0) > 0
+    const hasMargin = result.inss_margin !== null && result.inss_margin !== undefined
+    const hasOffers = (result.offers?.length ?? 0) > 0
+    const hasSavings = enablePhase2 && !!result.savings_simulation
+    const hasTimeline = enablePhase3 && (result.historical_contracts?.length ?? 0) > 0
+    const hasDebtMap = enablePhase3 && (hasContracts || hasConsignadoLines)
+    const hasCostBreakdown =
+      enablePhase2 && (result.custo_juros_por_contrato?.length ?? 0) > 0
 
-    const metaItems = []
-    if (normalizedName) {
-      metaItems.push(`Cliente: ${normalizedName}`)
-    }
-    metaItems.push(`Data: ${dateLabel}`)
+    const pageDescriptors: Array<{ key: string; render: () => React.ReactNode }> = [
+      {
+        key: 'p1',
+        render: () => <CoverSummary result={result} clientName={clientName} dateLabel={dateLabel} />,
+      },
+      ...(hasContracts || hasConsignadoLines
+        ? [
+            {
+              key: 'p2',
+              render: () => (
+                <div className="space-y-6">
+                  {hasContracts && <ContractsTable contracts={result.loan_contracts ?? []} />}
+                  {hasConsignadoLines && (
+                    <ConsignadoBreakdown lines={result.consignado_lines ?? []} />
+                  )}
+                </div>
+              ),
+            },
+          ]
+        : []),
+      ...(hasMargin || hasOffers || hasSavings || hasDebtMap || hasTimeline || hasCostBreakdown
+        ? [
+            {
+              key: 'p3',
+              render: () => (
+                <div className="space-y-5">
+                  {hasMargin && result.inss_margin && <INSSMarginSection margin={result.inss_margin} />}
+                  {hasOffers && <OffersSection offers={result.offers ?? []} />}
+                  {hasCostBreakdown && (
+                    <CostBreakdownSection
+                      totalJurosCent={result.custo_juros_total_cent ?? null}
+                      items={result.custo_juros_por_contrato ?? []}
+                    />
+                  )}
+                  {hasSavings && result.savings_simulation && (
+                    <SavingsSection simulation={result.savings_simulation} />
+                  )}
+                  {hasDebtMap && (
+                    <DebtMapSection
+                      contracts={result.loan_contracts ?? []}
+                      consignadoLines={result.consignado_lines ?? []}
+                    />
+                  )}
+                  {hasTimeline && (
+                    <TimelineSection historicalContracts={result.historical_contracts ?? []} />
+                  )}
+                </div>
+              ),
+            },
+          ]
+        : []),
+      {
+        key: 'p4',
+        render: () => <MethodologyFooter whatsappText={whatsappCtaText} />,
+      },
+    ]
 
-    const formatValue = (value: number | null) =>
-      value === null ? '--' : formatCurrency(value)
-
-    const canComputeRelief =
-      result.divida_mensal_cent !== null &&
-      result.divida_mensal_reduzida_cent !== null
-
-    const reliefValue = canComputeRelief
-      ? result.divida_mensal_cent! - result.divida_mensal_reduzida_cent!
-      : null
-    const reliefAnnualValue =
-      reliefValue !== null ? reliefValue * 12 : null
-    const consignadosAtivosCent = result.divida_total_consignada_cent
-    const shouldShowConsignadosAtivos =
-      consignadosAtivosCent !== null && consignadosAtivosCent > 1_000_000
-    const shouldShowDividaTotalReduzida =
-      shouldShowConsignadosAtivos && result.divida_total_reduzida_cent !== null
-
-    const missingSalaryInfo =
-      result.salario_bruto_cent === null ||
-      result.salario_liquido_cent === null ||
-      result.total_descontos_cent === null ||
-      result.divida_mensal_cent === null ||
-      result.divida_mensal_reduzida_cent === null
+    const totalPages = pageDescriptors.length
 
     return (
-      <div
-        ref={ref}
-        style={{ width: 1240, height: 1754 }}
-        className="flex flex-col bg-white p-16 text-slate-900"
-      >
-        <header className="space-y-3 border-b border-slate-200 pb-6">
-          <div className="flex items-start justify-between gap-6">
-            <div>
-              <h1 className="text-3xl font-semibold">
-                Seu diagnóstico financeiro (antes e depois)
-              </h1>
-              <p className="mt-2 text-sm text-slate-600">{metaItems.join(' • ')}</p>
-            </div>
-            <span className="rounded-full bg-slate-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Relatório
-            </span>
-          </div>
-        </header>
-
-        <main className="flex flex-1 flex-col">
-          <div className="mt-10 grid grid-cols-2 gap-8">
-            <section className="flex flex-col gap-6 rounded-3xl border border-orange-100 bg-orange-50 p-8">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-orange-700">
-                  Antes
-                </p>
-                <h2 className="mt-2 text-lg font-semibold text-slate-900">
-                  Quanto entra e quanto sai
-                </h2>
-              </div>
-
-              <div className="space-y-4 text-sm">
-                <div>
-                  <p className="text-slate-700">Salário bruto</p>
-                  <p className="text-xl font-semibold text-slate-900">
-                    {formatValue(result.salario_bruto_cent)}
-                  </p>
-                  <p className="text-sm text-slate-600">
-                    seu salário total, antes dos descontos
-                  </p>
-                </div>
-                <div>
-                  <p className="text-slate-700">Salário líquido</p>
-                  <p className="text-xl font-semibold text-slate-900">
-                    {formatValue(result.salario_liquido_cent)}
-                  </p>
-                  <p className="text-sm text-slate-600">o que cai na conta</p>
-                </div>
-                <div>
-                  <p className="text-slate-700">Total de descontos</p>
-                  <p className="text-xl font-semibold text-slate-900">
-                    {formatValue(result.total_descontos_cent)}
-                  </p>
-                  <p className="text-sm text-slate-600">
-                    descontos do salário (em folha)
-                  </p>
-                </div>
-                {shouldShowConsignadosAtivos && (
-                  <div>
-                    <p className="text-slate-700">Consignados ativos</p>
-                    <p className="text-xl font-semibold text-slate-900">
-                      {formatValue(consignadosAtivosCent)}
-                    </p>
-                    <p className="max-w-xs text-sm leading-snug text-slate-600">
-                      total que ainda falta pagar dos seus consignados
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              <p className="rounded-2xl bg-white/70 p-4 text-sm text-slate-700">
-                Hoje, seus descontos estão consumindo grande parte do seu salário.
-              </p>
-
-              <div className="rounded-2xl border border-orange-100 bg-white p-5">
-                <p className="text-sm font-semibold text-slate-900">
-                  Desconto mensal atual no salário
-                </p>
-                <p className="mt-2 text-2xl font-semibold text-slate-900">
-                  {formatValue(result.divida_mensal_cent)}
-                </p>
-                <p className="mt-1 text-sm text-slate-600">
-                  estimativa baseada nos descontos informados
-                </p>
-                <p className="mt-3 text-sm font-semibold text-orange-700">
-                  Isso aperta seu orçamento mês a mês.
-                </p>
-              </div>
-            </section>
-
-            <section className="flex flex-col gap-6 rounded-3xl border border-emerald-100 bg-emerald-50 p-8">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                  Depois
-                </p>
-                <h2 className="mt-2 text-lg font-semibold text-slate-900">
-                  Como ficaria com a redução
-                </h2>
-              </div>
-
-              <div className="space-y-4 text-sm">
-                <div>
-                  <p className="text-slate-700">Desconto mensal no salário</p>
-                  <p className="text-xl font-semibold text-slate-900">
-                    {formatValue(result.divida_mensal_reduzida_cent)}
-                  </p>
-                  <p className="max-w-xs text-sm leading-snug text-slate-600">
-                    valor estimado que passará a ser descontado do seu salário
-                  </p>
-                </div>
-                {shouldShowDividaTotalReduzida && (
-                  <div>
-                    <p className="text-slate-700">Valor final dos consignados</p>
-                    <p className="text-xl font-semibold text-slate-900">
-                      {formatValue(result.divida_total_reduzida_cent)}
-                    </p>
-                    <p className="max-w-xs text-sm leading-snug text-slate-600">
-                      valor final estimado após a redução de todos os consignados
-                    </p>
-                  </div>
-                )}
-              </div>
-            </section>
-          </div>
-
-          {canComputeRelief && reliefValue !== null && (
-            <section className="mt-8 rounded-3xl border border-emerald-200 bg-emerald-50 p-8">
-              <p className="text-sm font-semibold uppercase tracking-wide text-emerald-700">
-                Economia mensal estimada
-              </p>
-              <p className="mt-3 text-4xl font-semibold text-emerald-900">
-                {formatCurrency(reliefValue)}
-              </p>
-              <p className="mt-2 text-sm text-emerald-800">
-                {formatCurrency(result.divida_mensal_cent!)} / mês →{' '}
-                {formatCurrency(result.divida_mensal_reduzida_cent!)} / mês
-              </p>
-              <p className="mt-2 text-sm font-semibold text-emerald-900">
-                Economia: {formatCurrency(reliefValue)} / mês
-              </p>
-              {reliefAnnualValue !== null && (
-                <p className="mt-1 text-sm text-emerald-900">
-                  Economia anual estimada: {formatCurrency(reliefAnnualValue)}
-                </p>
-              )}
-              <p className="mt-3 text-sm text-emerald-900">
-                Você pode reduzir a pressão mensal em ~{formatCurrency(reliefValue)}.
-              </p>
-            </section>
-          )}
-        </main>
-
-        <footer className="mt-8 border-t border-slate-200 pt-6 text-xs text-slate-600">
-          <div className="flex items-start justify-between gap-6">
-            <div>
-              <p className="font-semibold text-slate-800">Como chegamos aos números</p>
-              <p className="mt-1">
-                Usamos seu contracheque e o saldo dos consignados para estimar
-                o peso mensal e projetar um cenário baseado em acordos já
-                obtidos com perfis semelhantes ao seu.
-              </p>
-              <p className="mt-2">
-                Condições e descontos variam conforme credor e perfil.
-              </p>
-              {missingSalaryInfo && (
-                <p className="mt-2 text-slate-500">
-                  Para completar salários e descontos, envie contracheque ou
-                  informe renda e gasto mensal com dívidas.
-                </p>
-              )}
-            </div>
-            <div className="max-w-xs text-right text-slate-500" />
-          </div>
-        </footer>
+      <div ref={ref}>
+        {pageDescriptors.map((page, index) => (
+          <PageWrapper key={page.key} pageNumber={index + 1} totalPages={totalPages}>
+            {page.render()}
+          </PageWrapper>
+        ))}
       </div>
     )
   }

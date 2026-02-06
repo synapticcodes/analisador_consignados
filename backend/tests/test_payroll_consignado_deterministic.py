@@ -50,3 +50,33 @@ LIQUIDO A RECEBER
     assert 41700 in valores
     assert 9500 in valores
     assert 44544 in valores
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_payroll_summary_fallback_extracts_bruto_liquido_descontos():
+    text = """
+COMPROVANTE DE RENDIMENTOS - FOLHA
+COMPETENCIA: 01/2026
+
+RENDIMENTOS
+...
+DESCONTOS
+...
+
+BRUTO
+15.065,86
+DESCONTO
+8.668,98
+LÍQUIDO
+6.396,88
+"""
+    extractor = PaymentExtractor(llm_client=StubLLMClient())
+    result = await extractor.extract(text=text, competencia="2026-01")
+
+    assert result.salario_bruto.value == 15065.86
+    assert result.salario_liquido.value == 6396.88
+    assert result.total_descontos.value == 8668.98
+    assert result.salario_bruto.method == "EXTRACTED_FROM_BRUTO_SUMMARY"
+    assert result.salario_liquido.method == "EXTRACTED_FROM_LIQUIDO_SUMMARY"
+    assert result.total_descontos.method == "EXTRACTED_FROM_DESCONTOS_SUMMARY"

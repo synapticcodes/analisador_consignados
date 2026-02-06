@@ -429,6 +429,60 @@ class ComputeEngine:
             alerts=alerts,
         )
 
+    def compute_contract_costs(
+        self, contracts: list[object]
+    ) -> tuple[list[dict[str, int | str | None]], int]:
+        """
+        Calcula custo real dos juros por contrato.
+        Fórmula:
+        total_a_pagar = parcela_cent * parcelas_restantes
+        custo_juros_cent = total_a_pagar - valor_emprestado_cent
+        """
+        costs: list[dict[str, int | str | None]] = []
+
+        for contract in contracts:
+            parcela_cent = getattr(contract, "parcela_cent", None)
+            valor_emprestado_cent = getattr(contract, "valor_emprestado_cent", None)
+            parcelas_restantes = getattr(contract, "parcelas_restantes", None)
+            total_parcelas = getattr(contract, "total_parcelas", None)
+            parcelas_pagas = getattr(contract, "parcelas_pagas", None)
+
+            if parcelas_restantes is None and total_parcelas is not None and parcelas_pagas is not None:
+                parcelas_restantes = total_parcelas - parcelas_pagas
+
+            if (
+                parcela_cent is None
+                or valor_emprestado_cent is None
+                or parcelas_restantes is None
+                or parcelas_restantes <= 0
+            ):
+                continue
+
+            total_a_pagar_cent = int(parcela_cent) * int(parcelas_restantes)
+            custo_juros_cent = total_a_pagar_cent - int(valor_emprestado_cent)
+            percentual_juros_basis_points = None
+            if valor_emprestado_cent > 0:
+                percentual_juros_basis_points = (custo_juros_cent * 10000) // int(
+                    valor_emprestado_cent
+                )
+
+            costs.append(
+                {
+                    "contract_id": getattr(contract, "contract_id", None),
+                    "lender_name": getattr(contract, "lender_name", None),
+                    "parcela_cent": int(parcela_cent),
+                    "parcelas_restantes": int(parcelas_restantes),
+                    "valor_emprestado_cent": int(valor_emprestado_cent),
+                    "total_a_pagar_cent": total_a_pagar_cent,
+                    "custo_juros_cent": custo_juros_cent,
+                    "percentual_juros_basis_points": percentual_juros_basis_points,
+                }
+            )
+
+        costs.sort(key=lambda item: int(item["custo_juros_cent"]), reverse=True)
+        total_cost_cent = sum(int(item["custo_juros_cent"]) for item in costs)
+        return costs, total_cost_cent
+
     @staticmethod
     def cents_to_currency(cents: int | None) -> float | None:
         """

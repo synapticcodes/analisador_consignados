@@ -24,6 +24,8 @@ from app.core.database import Base
 
 if TYPE_CHECKING:
     from app.models.final_result import FinalResult
+    from app.models.historical_contract import HistoricalContract
+    from app.models.inss_margin import INSSMargin
     from app.models.loan_contract import LoanContract
     from app.models.offer import Offer
     from app.models.payroll_month import PayrollMonth
@@ -104,6 +106,14 @@ class AnalysisJob(Base):
 
     loan_contracts: Mapped[list["LoanContract"]] = relationship(
         "LoanContract", back_populates="job", cascade="all, delete-orphan"
+    )
+
+    inss_margin: Mapped["INSSMargin | None"] = relationship(
+        "INSSMargin", back_populates="job", uselist=False, cascade="all, delete-orphan"
+    )
+
+    historical_contracts: Mapped[list["HistoricalContract"]] = relationship(
+        "HistoricalContract", back_populates="job", cascade="all, delete-orphan"
     )
 
     payroll_months: Mapped[list["PayrollMonth"]] = relationship(

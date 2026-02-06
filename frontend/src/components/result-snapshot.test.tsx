@@ -1,0 +1,169 @@
+import { render, screen } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
+
+import ResultSnapshot from '@/components/result-snapshot'
+import type { FinalResultResponse } from '@/types/api'
+
+function buildResult(overrides: Partial<FinalResultResponse> = {}): FinalResultResponse {
+  return {
+    job_id: 'job-1',
+    competencia_alvo: '2026-02',
+    salario_bruto_cent: 500000,
+    salario_liquido_cent: 420000,
+    total_descontos_cent: 80000,
+    divida_mensal_cent: 72000,
+    divida_mensal_reduzida_cent: 18000,
+    consignado_mensal_cent: 18000,
+    divida_total_consignada_cent: 2500000,
+    divida_total_reduzida_cent: 625000,
+    parcelas_restantes_total: 24,
+    alerts: [],
+    offers: [],
+    loan_contracts: [],
+    consignado_lines: [],
+    inss_margin: null,
+    historical_contracts: [],
+    custo_juros_total_cent: null,
+    custo_juros_total_brl: null,
+    custo_juros_por_contrato: [],
+    savings_simulation: null,
+    report_layers: {
+      confirmado: [],
+      indicacao: [],
+      nao_disponivel: [],
+    },
+    ...overrides,
+  }
+}
+
+describe('ResultSnapshot', () => {
+  it('renderiza apenas páginas 1 e 4 quando não há dados de páginas condicionais', () => {
+    render(
+      <ResultSnapshot
+        result={buildResult()}
+        dateLabel="06/02/2026"
+      />
+    )
+
+    const pages = screen.getAllByText(/Página \d de \d/)
+    expect(pages).toHaveLength(2)
+    expect(screen.queryByText('Contratos Identificados')).not.toBeInTheDocument()
+    expect(screen.getByText('Metodologia e Próximos Passos')).toBeInTheDocument()
+  })
+
+  it('renderiza páginas condicionais e mantém ordenação de ofertas REDUZIDA -> PRINCIPAL -> SUPER', () => {
+    render(
+      <ResultSnapshot
+        result={buildResult({
+          loan_contracts: [
+            {
+              id: 'c1',
+              lender_name: 'Banco A',
+              contract_id: '1',
+              parcela_cent: 10000,
+              parcelas_restantes: 10,
+              valor_total_cent: 100000,
+              taxa_juros: '1,40%',
+              status: 'ATIVO',
+              cet_mensal: null,
+              cet_anual: null,
+              iof_cent: 1000,
+              valor_emprestado_cent: 90000,
+            },
+          ],
+          consignado_lines: [
+            { descricao: 'EMPR CONSIGNADO', rubrica: '123', valor_cent: 3000 },
+          ],
+          inss_margin: {
+            base_calculo_cent: 100000,
+            max_comprometimento_cent: 45000,
+            total_comprometido_cent: 30000,
+            margem_emprestimo_cent: 15000,
+            margem_rmc_cent: 0,
+            margem_rcc_cent: 5000,
+            cet_mensal: null,
+            cet_anual: null,
+            rmc_banco: null,
+            rmc_limite_cent: null,
+            rmc_reservado_cent: null,
+            evidence: null,
+          },
+          offers: [
+            {
+              id: 'o1',
+              product_id: 'p',
+              kind: 'SUPER',
+              payment_method: 'BOLETO',
+              entry_value_cent: 0,
+              entry_due_days: 0,
+              installment_count: 12,
+              installment_value_cent: 10000,
+              first_payment_days: 30,
+              total_value_cent: 120000,
+              salary_liquid_used_cent: 420000,
+              percent_used: 30,
+              text: 'Oferta super',
+              created_at: '2026-02-06T00:00:00Z',
+            },
+            {
+              id: 'o2',
+              product_id: 'p',
+              kind: 'PRINCIPAL',
+              payment_method: 'BOLETO',
+              entry_value_cent: 0,
+              entry_due_days: 0,
+              installment_count: 12,
+              installment_value_cent: 9000,
+              first_payment_days: 30,
+              total_value_cent: 108000,
+              salary_liquid_used_cent: 420000,
+              percent_used: 27,
+              text: 'Oferta principal',
+              created_at: '2026-02-06T00:00:00Z',
+            },
+            {
+              id: 'o3',
+              product_id: 'p',
+              kind: 'REDUZIDA',
+              payment_method: 'BOLETO',
+              entry_value_cent: 0,
+              entry_due_days: 0,
+              installment_count: 12,
+              installment_value_cent: 8000,
+              first_payment_days: 30,
+              total_value_cent: 96000,
+              salary_liquid_used_cent: 420000,
+              percent_used: 24,
+              text: 'Oferta reduzida',
+              created_at: '2026-02-06T00:00:00Z',
+            },
+          ],
+        })}
+        dateLabel="06/02/2026"
+      />
+    )
+
+    const pages = screen.getAllByText(/Página \d de \d/)
+    expect(pages.length).toBeGreaterThanOrEqual(4)
+
+    const offerKindLabels = screen.getAllByText(/REDUZIDA|PRINCIPAL|SUPER/)
+    expect(offerKindLabels[0]).toHaveTextContent('REDUZIDA')
+    expect(offerKindLabels[1]).toHaveTextContent('PRINCIPAL')
+    expect(offerKindLabels[2]).toHaveTextContent('SUPER')
+  })
+
+  it('mantém CTA do WhatsApp na página 4', () => {
+    render(
+      <ResultSnapshot
+        result={buildResult()}
+        dateLabel="06/02/2026"
+        whatsappCtaText="WhatsApp: (11) 99999-9999"
+      />
+    )
+
+    expect(
+      screen.getByText('Próximo passo: fale com nossa equipe no WhatsApp para análise completa.')
+    ).toBeInTheDocument()
+    expect(screen.getByText('WhatsApp: (11) 99999-9999')).toBeInTheDocument()
+  })
+})

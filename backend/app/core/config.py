@@ -137,6 +137,14 @@ class Settings(BaseSettings):
     ocr_quality_threshold: float = 0.6
 
     # ==============================================
+    # Feature Flags (Relatório PDF v2)
+    # ==============================================
+    feature_pdf_v2_enabled: bool = True
+    feature_pdf_v2_phase2_enabled: bool = True
+    feature_pdf_v2_phase3_enabled: bool = True
+    taxa_referencia_mensal: float = 1.50
+
+    # ==============================================
     # Rate Limiting
     # ==============================================
     rate_limit_per_user_per_hour: int = 10

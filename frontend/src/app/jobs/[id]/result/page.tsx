@@ -32,7 +32,9 @@ import {
 } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import ResultSnapshot from '@/components/result-snapshot'
+import LegacyResultSnapshot from '@/components/result-snapshot-legacy'
 import { getJobResult } from '@/lib/api'
+import { getSnapshotPages, resolvePdfExportTargets } from '@/lib/pdf-export'
 import {
   type FinalResultResponse,
   formatCurrency,
@@ -146,12 +148,19 @@ export default function JobResultPage() {
   const [clientName, setClientName] = useState('')
   const [exporting, setExporting] = useState<'pdf' | 'png' | null>(null)
   const snapshotRef = useRef<HTMLDivElement | null>(null)
+  const legacySnapshotRef = useRef<HTMLDivElement | null>(null)
 
   const dateLabel = useMemo(
     () => new Date().toLocaleDateString('pt-BR'),
     []
   )
   const fileDate = useMemo(() => new Date().toISOString().slice(0, 10), [])
+  const featurePdfV2Enabled =
+    process.env.NEXT_PUBLIC_FEATURE_PDF_V2_ENABLED !== 'false'
+  const featurePdfV2Phase2Enabled =
+    process.env.NEXT_PUBLIC_FEATURE_PDF_V2_PHASE2_ENABLED !== 'false'
+  const featurePdfV2Phase3Enabled =
+    process.env.NEXT_PUBLIC_FEATURE_PDF_V2_PHASE3_ENABLED !== 'false'
 
   useEffect(() => {
     if (!jobId) {
@@ -231,22 +240,35 @@ export default function JobResultPage() {
     return snapshotRef.current
   }
 
+  const captureElementPng = async (element: HTMLElement) => {
+    return toPng(element, {
+      backgroundColor: '#ffffff',
+      cacheBust: true,
+      pixelRatio: 2,
+    })
+  }
+
   const handleExportPng = async () => {
     const snapshot = ensureSnapshot()
     if (!snapshot) return
 
     setExporting('png')
     try {
-      const dataUrl = await toPng(snapshot, {
-        backgroundColor: '#ffffff',
-        cacheBust: true,
-        pixelRatio: 2,
-      })
+      const page = getSnapshotPages(snapshot)[0]
+      if (!page) {
+        throw new Error('Página de snapshot não encontrada')
+      }
+      const startedAt = performance.now()
+      const dataUrl = await captureElementPng(page)
 
       const link = document.createElement('a')
       link.href = dataUrl
       link.download = `${baseFileName}.png`
       link.click()
+      console.info('export_png', {
+        elapsed_ms: Math.round(performance.now() - startedAt),
+        pages: 1,
+      })
       toast.success('PNG gerado com sucesso')
     } catch (error) {
       console.error('Error exporting PNG:', error)
@@ -261,26 +283,80 @@ export default function JobResultPage() {
     if (!snapshot) return
 
     setExporting('pdf')
+    const startedAt = performance.now()
     try {
-      const dataUrl = await toPng(snapshot, {
-        backgroundColor: '#ffffff',
-        cacheBust: true,
-        pixelRatio: 2,
-      })
-
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
         format: 'a4',
       })
-      const pageWidth = pdf.internal.pageSize.getWidth()
-      const pageHeight = pdf.internal.pageSize.getHeight()
-      pdf.addImage(dataUrl, 'PNG', 0, 0, pageWidth, pageHeight, undefined, 'FAST')
+
+      const pageWidth = 210
+      const pageHeight = 297
+      const exportTargets = resolvePdfExportTargets({
+        featurePdfV2Enabled,
+        v2Snapshot: snapshotRef.current,
+        legacySnapshot: legacySnapshotRef.current,
+      })
+
+      if (exportTargets.hasMultipage) {
+        for (let index = 0; index < exportTargets.multipagePages.length; index += 1) {
+          const dataUrl = await captureElementPng(exportTargets.multipagePages[index])
+          if (index > 0) {
+            pdf.addPage('a4', 'portrait')
+          }
+          pdf.addImage(dataUrl, 'PNG', 0, 0, pageWidth, pageHeight, undefined, 'FAST')
+        }
+        console.info('export_pdf_v2', {
+          elapsed_ms: Math.round(performance.now() - startedAt),
+          pages: exportTargets.multipagePages.length,
+          sections: {
+            contracts: result.loan_contracts?.length ?? 0,
+            consignado_lines: result.consignado_lines?.length ?? 0,
+            has_margin: !!result.inss_margin,
+            offers: result.offers?.length ?? 0,
+          },
+        })
+      } else {
+        const fallbackPage = exportTargets.legacyPage
+        if (!fallbackPage) {
+          throw new Error('Snapshot legado de fallback não encontrado')
+        }
+        const fallbackUrl = await captureElementPng(fallbackPage)
+        pdf.addImage(fallbackUrl, 'PNG', 0, 0, pageWidth, pageHeight, undefined, 'FAST')
+        console.info('export_pdf_legacy_fallback', {
+          elapsed_ms: Math.round(performance.now() - startedAt),
+          pages: 1,
+        })
+      }
+
       pdf.save(`${baseFileName}.pdf`)
       toast.success('PDF gerado com sucesso')
     } catch (error) {
       console.error('Error exporting PDF:', error)
-      toast.error('Erro ao gerar PDF')
+      try {
+        // Fallback de segurança para formato legado de 1 página real.
+        const fallbackPage = resolvePdfExportTargets({
+          featurePdfV2Enabled,
+          v2Snapshot: snapshotRef.current,
+          legacySnapshot: legacySnapshotRef.current,
+        }).legacyPage
+        if (!fallbackPage) {
+          throw new Error('Snapshot legado de fallback não encontrado')
+        }
+        const fallbackUrl = await captureElementPng(fallbackPage)
+        const fallbackPdf = new jsPDF({
+          orientation: 'portrait',
+          unit: 'mm',
+          format: 'a4',
+        })
+        fallbackPdf.addImage(fallbackUrl, 'PNG', 0, 0, 210, 297, undefined, 'FAST')
+        fallbackPdf.save(`${baseFileName}.pdf`)
+        toast.success('PDF gerado com fallback de segurança')
+      } catch (fallbackError) {
+        console.error('Error on PDF fallback:', fallbackError)
+        toast.error('Erro ao gerar PDF')
+      }
     } finally {
       setExporting(null)
     }
@@ -641,6 +717,20 @@ export default function JobResultPage() {
       >
         <ResultSnapshot
           ref={snapshotRef}
+          result={result}
+          clientName={clientName}
+          dateLabel={dateLabel}
+          whatsappCtaText="WhatsApp: (11) 99999-9999"
+          enablePhase2={featurePdfV2Phase2Enabled}
+          enablePhase3={featurePdfV2Phase3Enabled}
+        />
+      </div>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed left-[-9999px] top-0"
+      >
+        <LegacyResultSnapshot
+          ref={legacySnapshotRef}
           result={result}
           clientName={clientName}
           dateLabel={dateLabel}

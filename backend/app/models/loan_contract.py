@@ -61,9 +61,14 @@ class LoanContract(Base):
     parcelas_pagas: Mapped[int | None] = mapped_column(Integer)
     parcelas_restantes: Mapped[int | None] = mapped_column(Integer)
     valor_total_cent: Mapped[int | None] = mapped_column(BigInteger)
+    iof_cent: Mapped[int | None] = mapped_column(BigInteger)
+    valor_emprestado_cent: Mapped[int | None] = mapped_column(BigInteger)
 
     # Status
     status: Mapped[str] = mapped_column(String, default=ContractStatus.ATIVO.value)
+    taxa_juros: Mapped[str | None] = mapped_column(String(20))
+    cet_mensal: Mapped[str | None] = mapped_column(String(20))
+    cet_anual: Mapped[str | None] = mapped_column(String(20))
 
     # Evidence
     evidence: Mapped[dict | None] = mapped_column(JSONB)

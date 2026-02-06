@@ -69,6 +69,11 @@ class LoanContractResult:
     valor_total: ExtractedField
     taxa_juros: str | None
     alerts: list[str]
+    status: str | None = None
+    cet_mensal: str | None = None
+    cet_anual: str | None = None
+    iof_cent: int | None = None
+    valor_emprestado_cent: int | None = None
 
 
 class PaymentExtractor:
@@ -358,6 +363,85 @@ class PaymentExtractor:
                 i += 1
 
         return extracted
+
+    def _is_probably_payroll_text(self, text: str) -> bool:
+        normalized = self._normalize_for_match(text or "")
+        checks = [
+            "FOLHA",
+            "COMPROVANTE DE RENDIMENTOS",
+            "PROVENTOS",
+            "RENDIMENTOS",
+            "DESCONTOS",
+            "LIQUIDO",
+        ]
+        hits = sum(1 for token in checks if token in normalized)
+        return hits >= 2 and "DESCONT" in normalized
+
+    def _extract_payroll_summary_values_deterministic(
+        self, text: str
+    ) -> dict[str, tuple[float, str]]:
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        results: dict[str, tuple[float, str]] = {}
+
+        label_patterns: dict[str, tuple[str, ...]] = {
+            "salario_bruto": (
+                r"\bSAL[ÁA]RIO\s+BRUTO\b",
+                r"\bTOTAL\s+DE?\s*PROVENTOS\b",
+                r"\bBRUTO\b",
+            ),
+            "salario_liquido": (
+                r"\bL[ÍI]QUIDO\s+A\s+RECEBER\b",
+                r"\bSAL[ÁA]RIO\s+L[ÍI]QUIDO\b",
+                r"\bL[ÍI]QUIDO\b",
+            ),
+            "total_descontos": (
+                r"\bTOTAL\s+DE?\s*DESCONTOS\b",
+                r"\bTOTAL\s+DESCONTOS\b",
+                r"\bDESCONTO[S]?\b",
+            ),
+        }
+
+        def line_has_any_label(raw_line: str) -> bool:
+            norm = self._normalize_for_match(raw_line)
+            for patterns in label_patterns.values():
+                if any(re.search(pat, norm, flags=re.IGNORECASE) for pat in patterns):
+                    return True
+            return False
+
+        def matches_field(field: str, raw_line: str) -> bool:
+            norm = self._normalize_for_match(raw_line)
+            patterns = label_patterns[field]
+            return any(re.search(pat, norm, flags=re.IGNORECASE) for pat in patterns)
+
+        for idx, line in enumerate(lines):
+            if len(results) == len(label_patterns):
+                break
+
+            for field in label_patterns:
+                if field in results:
+                    continue
+                if not matches_field(field, line):
+                    continue
+
+                same_line = self._extract_brl_from_line(line)
+                if same_line is not None:
+                    results[field] = (same_line, line)
+                    continue
+
+                for offset in range(1, 4):
+                    j = idx + offset
+                    if j >= len(lines):
+                        break
+                    probe = lines[j]
+                    if line_has_any_label(probe):
+                        break
+                    value = self._extract_brl_from_line(probe)
+                    if value is None:
+                        continue
+                    results[field] = (value, f"{line}\n{probe}")
+                    break
+
+        return results
 
     def _merge_consignado_lines(
         self,
@@ -847,6 +931,55 @@ class PaymentExtractor:
                     "Fallback determinístico aplicado após falha de JSON do LLM."
                 )
 
+        # Fallback determinístico para folha/contracheque (quando LLM falha ou retorna campos incompletos)
+        if self._is_probably_payroll_text(text):
+            summary_values = self._extract_payroll_summary_values_deterministic(text)
+            applied_fields = 0
+
+            if (
+                result.salario_bruto.value is None
+                and summary_values.get("salario_bruto") is not None
+            ):
+                value, evidence_text = summary_values["salario_bruto"]
+                result.salario_bruto = ExtractedField(
+                    value=value,
+                    currency="BRL",
+                    method="EXTRACTED_FROM_BRUTO_SUMMARY",
+                    evidence=FieldEvidence(page=0, text=evidence_text),
+                )
+                applied_fields += 1
+
+            if (
+                result.salario_liquido.value is None
+                and summary_values.get("salario_liquido") is not None
+            ):
+                value, evidence_text = summary_values["salario_liquido"]
+                result.salario_liquido = ExtractedField(
+                    value=value,
+                    currency="BRL",
+                    method="EXTRACTED_FROM_LIQUIDO_SUMMARY",
+                    evidence=FieldEvidence(page=0, text=evidence_text),
+                )
+                applied_fields += 1
+
+            if (
+                result.total_descontos.value is None
+                and summary_values.get("total_descontos") is not None
+            ):
+                value, evidence_text = summary_values["total_descontos"]
+                result.total_descontos = ExtractedField(
+                    value=value,
+                    currency="BRL",
+                    method="EXTRACTED_FROM_DESCONTOS_SUMMARY",
+                    evidence=FieldEvidence(page=0, text=evidence_text),
+                )
+                applied_fields += 1
+
+            if parse_error and applied_fields:
+                result.alerts.append(
+                    "Fallback determinístico aplicado para resumo de contracheque."
+                )
+
         return result
 
 
@@ -1090,6 +1223,38 @@ class LoanExtractor:
                     return int(match.group(0)) if match else None
                 return None
 
+            def parse_cent_field(raw_value) -> int | None:
+                if raw_value is None:
+                    return None
+                if isinstance(raw_value, dict):
+                    if raw_value.get("value") is not None:
+                        try:
+                            return int(round(float(raw_value.get("value")) * 100))
+                        except (TypeError, ValueError):
+                            return None
+                    raw_value = raw_value.get("cent")
+                if isinstance(raw_value, (int, float)):
+                    return int(round(float(raw_value)))
+                if isinstance(raw_value, str):
+                    return self._parse_brl_to_cent(raw_value)
+                return None
+
+            def parse_cent_field(raw_value) -> int | None:
+                if raw_value is None:
+                    return None
+                if isinstance(raw_value, dict):
+                    if raw_value.get("value") is not None:
+                        try:
+                            return int(round(float(raw_value.get("value")) * 100))
+                        except (TypeError, ValueError):
+                            return None
+                    raw_value = raw_value.get("cent")
+                if isinstance(raw_value, (int, float)):
+                    return int(round(float(raw_value)))
+                if isinstance(raw_value, str):
+                    return self._parse_brl_to_cent(raw_value)
+                return None
+
             return LoanContractResult(
                 lender_name=result_dict.get("lenderName"),
                 contract_id=result_dict.get("contractId"),
@@ -1100,6 +1265,13 @@ class LoanExtractor:
                 valor_total=parse_field(result_dict.get("valorTotal")),
                 taxa_juros=result_dict.get("taxaJuros"),
                 alerts=result_dict.get("alerts", []),
+                status=result_dict.get("status"),
+                cet_mensal=result_dict.get("cetMensal"),
+                cet_anual=result_dict.get("cetAnual"),
+                iof_cent=parse_cent_field(result_dict.get("iof")),
+                valor_emprestado_cent=parse_cent_field(
+                    result_dict.get("valorEmprestado")
+                ),
             )
 
         except Exception as e:
@@ -1114,6 +1286,7 @@ class LoanExtractor:
                 valor_total=ExtractedField(None, None, None, None),
                 taxa_juros=None,
                 alerts=[f"Erro ao extrair dados do contrato: {str(e)}"],
+                status=None,
             )
 
     def _redact_preview(self, text: str, limit: int = 500) -> str:
@@ -1158,9 +1331,241 @@ class LoanExtractor:
             values.append((value, match.group(0)))
         return values
 
+    def _parse_brl_to_cent(self, value: str | None) -> int | None:
+        if not value:
+            return None
+        cleaned = value.replace("R$", "").replace(" ", "").replace(".", "").replace(",", ".")
+        try:
+            return int(round(float(cleaned) * 100))
+        except ValueError:
+            return None
+
+    def _extract_brl_from_line(self, line: str) -> float | None:
+        match = re.search(r"(?:R\$\s*)?(-?\d{1,3}(?:\.\d{3})*,\d{2})", line or "")
+        if not match:
+            return None
+        parsed = self._parse_brl_to_cent(match.group(1))
+        if parsed is None:
+            return None
+        return parsed / 100
+
+    def _extract_percentage(self, text: str, label: str) -> str | None:
+        pattern = re.compile(
+            rf"{label}\s*[:\-]?\s*(\d{{1,2}},\d{{1,2}}%)",
+            flags=re.IGNORECASE,
+        )
+        match = pattern.search(text)
+        return match.group(1) if match else None
+
+    def extract_inss_margin_data(self, text: str) -> dict[str, object] | None:
+        """
+        Extrai dados de margem do extrato INSS.
+        Retorna None quando não encontra base suficiente para montar a seção.
+        """
+        normalized = re.sub(r"\s+", " ", text or "")
+
+        def capture_brl(label: str) -> tuple[int | None, str | None]:
+            pattern = re.compile(
+                rf"{label}\s*[:\-]?\s*R\$\s*([\d\.]+,\d{{2}})",
+                flags=re.IGNORECASE,
+            )
+            match = pattern.search(normalized)
+            if not match:
+                return None, None
+            return self._parse_brl_to_cent(match.group(1)), match.group(0)
+
+        base_calculo_cent, base_evidence = capture_brl(r"BASE\s+DE\s+C[ÁA]LCULO")
+        max_comprometimento_cent, max_evidence = capture_brl(
+            r"M[ÁA]XIMO\s+DE\s+COMPROMETIMENTO"
+        )
+        total_comprometido_cent, total_evidence = capture_brl(
+            r"TOTAL\s+COMPROMETIDO"
+        )
+        margem_emprestimo_cent, margem_emprestimo_evidence = capture_brl(
+            r"MARGEM\s+DISPON[ÍI]VEL\s*[—-]?\s*EMPR[ÉE]STIMO"
+        )
+        margem_rmc_cent, margem_rmc_evidence = capture_brl(
+            r"MARGEM\s+DISPON[ÍI]VEL\s*[—-]?\s*RMC"
+        )
+        margem_rcc_cent, margem_rcc_evidence = capture_brl(
+            r"MARGEM\s+DISPON[ÍI]VEL\s*[—-]?\s*RCC"
+        )
+
+        cet_mensal = self._extract_percentage(normalized, r"CET\s+MENSAL")
+        cet_anual = self._extract_percentage(normalized, r"CET\s+ANUAL")
+
+        rmc_details = self._extract_inss_rmc_details(normalized)
+
+        has_any_margin_data = any(
+            value is not None
+            for value in (
+                base_calculo_cent,
+                max_comprometimento_cent,
+                total_comprometido_cent,
+                margem_emprestimo_cent,
+                margem_rmc_cent,
+                margem_rcc_cent,
+                cet_mensal,
+                cet_anual,
+                rmc_details.get("rmc_banco"),
+                rmc_details.get("rmc_limite_cent"),
+                rmc_details.get("rmc_reservado_cent"),
+            )
+        )
+        if not has_any_margin_data:
+            return None
+
+        evidence = {
+            "base_calculo": base_evidence,
+            "max_comprometimento": max_evidence,
+            "total_comprometido": total_evidence,
+            "margem_emprestimo": margem_emprestimo_evidence,
+            "margem_rmc": margem_rmc_evidence,
+            "margem_rcc": margem_rcc_evidence,
+        }
+
+        return {
+            "base_calculo_cent": base_calculo_cent,
+            "max_comprometimento_cent": max_comprometimento_cent,
+            "total_comprometido_cent": total_comprometido_cent,
+            "margem_emprestimo_cent": margem_emprestimo_cent,
+            "margem_rmc_cent": margem_rmc_cent,
+            "margem_rcc_cent": margem_rcc_cent,
+            "cet_mensal": cet_mensal,
+            "cet_anual": cet_anual,
+            "rmc_banco": rmc_details.get("rmc_banco"),
+            "rmc_limite_cent": rmc_details.get("rmc_limite_cent"),
+            "rmc_reservado_cent": rmc_details.get("rmc_reservado_cent"),
+            "evidence": evidence,
+        }
+
+    def _extract_inss_rmc_details(self, text: str) -> dict[str, object]:
+        """Extrai detalhes de cartão RMC/RCC quando presentes."""
+        result: dict[str, object] = {
+            "rmc_banco": None,
+            "rmc_limite_cent": None,
+            "rmc_reservado_cent": None,
+        }
+
+        banco_match = re.search(
+            r"CART[ÃA]O\s+DE\s+CR[ÉE]DITO.*?(?:BANCO|BANC)\s*[:\-]?\s*([A-Z0-9\s\-\.]{3,80}?)(?=\s+(?:LIMITE|RESERVADO|R\$)|$)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if banco_match:
+            result["rmc_banco"] = banco_match.group(1).strip()
+
+        limite_match = re.search(
+            r"LIMITE\s*[:\-]?\s*R\$\s*([\d\.]+,\d{2})",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if limite_match:
+            result["rmc_limite_cent"] = self._parse_brl_to_cent(limite_match.group(1))
+
+        reservado_match = re.search(
+            r"(?:RESERVADO|RESERVA(?:\s+DE)?\s+MARGEM)\s*[:\-]?\s*R\$\s*([\d\.]+,\d{2})",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if reservado_match:
+            result["rmc_reservado_cent"] = self._parse_brl_to_cent(
+                reservado_match.group(1)
+            )
+
+        return result
+
+    def _parse_date_br(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        match = re.match(r"(\d{2})/(\d{2})/(\d{4})", value.strip())
+        if not match:
+            return None
+        dd, mm, yyyy = match.groups()
+        return f"{yyyy}-{mm}-{dd}"
+
+    def extract_inss_historical_contracts(self, text: str) -> list[dict[str, object]]:
+        """
+        Extrai contratos da seção de encerrados/excluídos do extrato INSS.
+        """
+        section = re.search(
+            r"CONTRATOS\s+EXCLU[ÍI]DOS\s+E\s+ENCERRADOS(.*?)(?:CART[ÃA]O\s+DE\s+CR[ÉE]DITO|\Z)",
+            text,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if not section:
+            return []
+
+        lines = [ln.strip() for ln in section.group(1).splitlines() if ln.strip()]
+        contracts: list[dict[str, object]] = []
+        current: dict[str, object] = {}
+
+        def flush_current() -> None:
+            nonlocal current
+            if not current:
+                return
+            contracts.append(current)
+            current = {}
+
+        for line in lines:
+            if re.search(r"\b\d{3}\s*-\s*[A-Z]", line):
+                flush_current()
+                current["lender_name"] = line
+                continue
+
+            if "CONTRAT" in line.upper():
+                contract_match = re.search(r"(\d{6,})", line)
+                if contract_match:
+                    current["contract_id"] = contract_match.group(1)
+                continue
+
+            date_matches = re.findall(r"\d{2}/\d{2}/\d{4}", line)
+            if date_matches:
+                if "data_contratacao" not in current:
+                    current["data_contratacao"] = self._parse_date_br(date_matches[0])
+                if len(date_matches) > 1:
+                    current["data_quitacao"] = self._parse_date_br(date_matches[1])
+                continue
+
+            parcela_match = re.search(r"PARCELA.*?R\$\s*([\d\.]+,\d{2})", line, re.IGNORECASE)
+            if parcela_match:
+                current["parcela_cent"] = self._parse_brl_to_cent(parcela_match.group(1))
+                continue
+
+            emprestado_match = re.search(
+                r"(?:VALOR\s+EMPRESTADO|VALOR\s+LIBERADO).*?R\$\s*([\d\.]+,\d{2})",
+                line,
+                re.IGNORECASE,
+            )
+            if emprestado_match:
+                current["valor_emprestado_cent"] = self._parse_brl_to_cent(
+                    emprestado_match.group(1)
+                )
+                continue
+
+            if any(token in line.upper() for token in ("ENCERR", "EXCLU", "QUITA")):
+                current["motivo_encerramento"] = line[:120]
+
+        flush_current()
+        return contracts
+
     def _fill_missing_contract_totals(
         self, text: str, contracts: list[LoanContractResult]
     ) -> None:
+        def pick_labeled_currency(window: str, labels: tuple[str, ...]) -> tuple[float, str] | None:
+            for raw_line in window.splitlines():
+                line = raw_line.strip()
+                if not line:
+                    continue
+                normalized = self._normalize_for_match(line)
+                if not any(label in normalized for label in labels):
+                    continue
+                value = self._extract_brl_from_line(line)
+                if value is None:
+                    continue
+                return (value, line)
+            return None
+
         for contract in contracts:
             if contract.valor_total and contract.valor_total.value is not None:
                 continue
@@ -1170,6 +1575,32 @@ class LoanExtractor:
             if idx == -1:
                 continue
             window = text[idx : idx + 800]
+
+            explicit_total = pick_labeled_currency(
+                window,
+                (
+                    "VALOR TOTAL",
+                    "TOTAL DO CONTRATO",
+                    "TOTAL A PAGAR",
+                    "VALOR FINANCIADO",
+                ),
+            )
+            if explicit_total:
+                contract.valor_total = ExtractedField(
+                    value=explicit_total[0],
+                    currency="BRL",
+                    method="EXTRACTED_FROM_STATEMENT_REGEX",
+                    evidence=FieldEvidence(page=0, text=explicit_total[1]),
+                )
+                contract.alerts.append(
+                    "Valor total preenchido por linha explicitamente rotulada."
+                )
+                continue
+
+            labeled_emprestado = pick_labeled_currency(
+                window,
+                ("VALOR EMPRESTADO", "EMPRESTADO LIBERADO", "VALOR LIBERADO"),
+            )
             currency_vals = self._parse_currency_values(window)
             if not currency_vals:
                 continue
@@ -1178,6 +1609,10 @@ class LoanExtractor:
                 chosen = currency_vals[1]
             elif len(currency_vals) == 1 and contract.parcela_mensal.value is None:
                 chosen = currency_vals[0]
+
+            if chosen and labeled_emprestado:
+                if abs(chosen[0] - labeled_emprestado[0]) < 0.01:
+                    chosen = None
 
             if chosen:
                 contract.valor_total = ExtractedField(
@@ -1238,7 +1673,7 @@ class LoanExtractor:
                         target.alerts.extend(fb.alerts)
                     continue
 
-        merged.append(fb)
+            merged.append(fb)
 
         # Remover possíveis IDs concatenados que contêm outros IDs válidos
         ids = [c.contract_id for c in merged if c.contract_id]
@@ -1321,6 +1756,7 @@ class LoanExtractor:
                 valor_total=valor_total_field,
                 taxa_juros=None,
                 alerts=alerts,
+                status="ATIVO",
             )
 
         lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
@@ -1479,13 +1915,68 @@ class LoanExtractor:
                 current["lender_name"] = " ".join(bank_name_parts)
 
             block_text = "\n".join(block_lines)
+
+            def pick_labeled_currency(labels: tuple[str, ...]) -> tuple[float, str] | None:
+                for raw_line in block_lines:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    normalized_line = self._normalize_for_match(line)
+                    if not any(label in normalized_line for label in labels):
+                        continue
+                    value = self._extract_brl_from_line(line)
+                    if value is None:
+                        continue
+                    return (value, line)
+                return None
+
             currency_vals = self._parse_currency_values(block_text)
-            parcela_val = currency_vals[0] if len(currency_vals) > 0 else None
-            total_val = currency_vals[1] if len(currency_vals) > 1 else None
+            parcela_val = pick_labeled_currency(("PARCELA",))
+            if parcela_val is None:
+                parcela_val = currency_vals[0] if len(currency_vals) > 0 else None
+
+            total_val = pick_labeled_currency(
+                ("VALOR TOTAL", "TOTAL DO CONTRATO", "TOTAL A PAGAR", "VALOR FINANCIADO")
+            )
+            if total_val is None and len(currency_vals) > 1:
+                total_val = currency_vals[1]
+
+            emprestado_val = pick_labeled_currency(
+                ("VALOR EMPRESTADO", "EMPRESTADO LIBERADO", "VALOR LIBERADO")
+            )
+            percentual_matches = re.findall(r"\d{1,2},\d{1,2}%", block_text)
+            cet_mensal = percentual_matches[0] if len(percentual_matches) > 0 else None
+            cet_anual = percentual_matches[1] if len(percentual_matches) > 1 else None
+            iof_match = re.search(r"IOF.*?R\$\s*([\d\.]+,\d{2})", block_text, re.IGNORECASE)
+            emprestado_match = re.search(
+                r"(?:VALOR\s+EMPRESTADO|VALOR\s+LIBERADO).*?R\$\s*([\d\.]+,\d{2})",
+                block_text,
+                re.IGNORECASE,
+            )
+
+            total_parcelas = current.get("total_parcelas")
+            if (
+                total_val is not None
+                and emprestado_val is not None
+                and abs(total_val[0] - emprestado_val[0]) < 0.01
+                and parcela_val is not None
+                and isinstance(total_parcelas, int)
+                and total_parcelas > 0
+            ):
+                total_val = None
 
             alerts = ["Extração fallback por regex (LLM inválido ou sem JSON)."]
             if fallback_alert:
                 alerts.append(fallback_alert)
+            if (
+                total_val is None
+                and parcela_val is not None
+                and isinstance(total_parcelas, int)
+                and total_parcelas > 0
+            ):
+                alerts.append(
+                    "Valor total ausente/ambíguo; será inferido por parcela x total de parcelas."
+                )
 
             parcela_field = ExtractedField(
                 value=parcela_val[0] if parcela_val else None,
@@ -1509,8 +2000,21 @@ class LoanExtractor:
                     parcelas_pagas=None,
                     parcelas_restantes=None,
                     valor_total=total_field,
-                    taxa_juros=None,
+                    taxa_juros=cet_mensal,
                     alerts=alerts,
+                    status="ATIVO",
+                    cet_mensal=cet_mensal,
+                    cet_anual=cet_anual,
+                    iof_cent=self._parse_brl_to_cent(iof_match.group(1)) if iof_match else None,
+                    valor_emprestado_cent=(
+                        int(round(emprestado_val[0] * 100))
+                        if emprestado_val
+                        else (
+                        self._parse_brl_to_cent(emprestado_match.group(1))
+                        if emprestado_match
+                        else None
+                        )
+                    ),
                 )
             )
 
@@ -1747,6 +2251,13 @@ class LoanExtractor:
                         valor_total=parse_field(item.get("valorTotal")),
                         taxa_juros=item.get("taxaJuros"),
                         alerts=item_alerts,
+                        status=item.get("status"),
+                        cet_mensal=item.get("cetMensal"),
+                        cet_anual=item.get("cetAnual"),
+                        iof_cent=parse_cent_field(item.get("iof")),
+                        valor_emprestado_cent=parse_cent_field(
+                            item.get("valorEmprestado")
+                        ),
                     )
                 )
 
@@ -1768,6 +2279,7 @@ class LoanExtractor:
                         valor_total=ExtractedField(None, None, None, None),
                         taxa_juros=None,
                         alerts=["Nenhum contrato encontrado no extrato."],
+                        status=None,
                     )
                 )
 
@@ -1802,5 +2314,6 @@ class LoanExtractor:
                     valor_total=ExtractedField(None, None, None, None),
                     taxa_juros=None,
                     alerts=[f"Erro ao extrair contratos: {str(e)}"],
+                    status=None,
                 )
             ]
