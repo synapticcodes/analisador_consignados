@@ -45,11 +45,15 @@ LIQUIDO A RECEBER
     extractor = PaymentExtractor(llm_client=StubLLMClient())
     result = await extractor.extract(text=text, competencia="2026-01")
     valores = {linha.valor_cent for linha in result.linhas_consignado}
+    linha_completa = next((linha for linha in result.linhas_consignado if linha.rubrica == "086"), None)
 
     assert 15000 in valores
     assert 41700 in valores
     assert 9500 in valores
     assert 44544 in valores
+    assert linha_completa is not None
+    assert linha_completa.descricao_raw is not None
+    assert linha_completa.descricao_canonica is not None
 
 
 @pytest.mark.asyncio

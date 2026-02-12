@@ -47,6 +47,8 @@ class LoanContractDetail(BaseModel):
 
 class ConsignadoLineDetail(BaseModel):
     descricao: str
+    descricao_raw: str | None = None
+    descricao_canonica: str | None = None
     rubrica: str | None = None
     valor_cent: int
 

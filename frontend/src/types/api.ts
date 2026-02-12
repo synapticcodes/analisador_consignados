@@ -70,6 +70,8 @@ export interface LoanContractDetailApi {
 
 export interface ConsignadoLineDetailApi {
   descricao: string
+  descricao_raw?: string | null
+  descricao_canonica?: string | null
   rubrica: string | null
   valor_cent: number
 }
@@ -217,6 +219,8 @@ export interface LoanContractDetail {
 
 export interface ConsignadoLineDetail {
   descricao: string
+  descricao_raw?: string | null
+  descricao_canonica?: string | null
   rubrica: string | null
   valor_cent: number
 }

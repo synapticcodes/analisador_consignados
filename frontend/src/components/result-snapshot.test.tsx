@@ -51,7 +51,7 @@ describe('ResultSnapshot', () => {
     expect(screen.getByText('Metodologia e Próximos Passos')).toBeInTheDocument()
   })
 
-  it('renderiza páginas condicionais e mantém ordenação de ofertas REDUZIDA -> PRINCIPAL -> SUPER', () => {
+  it('renderiza páginas condicionais sem exibir ofertas no relatório PDF', () => {
     render(
       <ResultSnapshot
         result={buildResult({
@@ -72,7 +72,13 @@ describe('ResultSnapshot', () => {
             },
           ],
           consignado_lines: [
-            { descricao: 'EMPR CONSIGNADO', rubrica: '123', valor_cent: 3000 },
+            {
+              descricao: 'EMPR CONSIGNADO',
+              descricao_raw: 'EMPREST BCO PRIVADOS - PAN',
+              descricao_canonica: 'EMPREST BCO PRIVADOS',
+              rubrica: '123',
+              valor_cent: 3000,
+            },
           ],
           inss_margin: {
             base_calculo_cent: 100000,
@@ -146,10 +152,10 @@ describe('ResultSnapshot', () => {
     const pages = screen.getAllByText(/Página \d de \d/)
     expect(pages.length).toBeGreaterThanOrEqual(4)
 
-    const offerKindLabels = screen.getAllByText(/REDUZIDA|PRINCIPAL|SUPER/)
-    expect(offerKindLabels[0]).toHaveTextContent('REDUZIDA')
-    expect(offerKindLabels[1]).toHaveTextContent('PRINCIPAL')
-    expect(offerKindLabels[2]).toHaveTextContent('SUPER')
+    expect(screen.queryByText('REDUZIDA')).not.toBeInTheDocument()
+    expect(screen.queryByText('PRINCIPAL')).not.toBeInTheDocument()
+    expect(screen.queryByText('SUPER')).not.toBeInTheDocument()
+    expect(screen.getByText('EMPREST BCO PRIVADOS - PAN · Rub 123')).toBeInTheDocument()
   })
 
   it('mantém CTA do WhatsApp na página 4', () => {
@@ -165,5 +171,30 @@ describe('ResultSnapshot', () => {
       screen.getByText('Próximo passo: fale com nossa equipe no WhatsApp para análise completa.')
     ).toBeInTheDocument()
     expect(screen.getByText('WhatsApp: (11) 99999-9999')).toBeInTheDocument()
+    expect(screen.queryByText('O que ainda não sabemos')).not.toBeInTheDocument()
+  })
+
+  it('pagina linhas do contracheque sem estourar página quando há muitas linhas', () => {
+    const lines = Array.from({ length: 25 }).map((_, index) => ({
+      descricao: `EMPREST BCO TESTE ${index + 1}`,
+      rubrica: `${100 + index}`,
+      valor_cent: 10000 + index,
+    }))
+
+    render(
+      <ResultSnapshot
+        result={buildResult({
+          consignado_lines: lines,
+        })}
+        dateLabel="06/02/2026"
+      />
+    )
+
+    const pages = screen.getAllByText(/Página \d de \d/)
+    expect(pages).toHaveLength(4)
+    expect(screen.getByText('EMPREST BCO TESTE 1 · Rub 100')).toBeInTheDocument()
+    expect(screen.getByText('EMPREST BCO TESTE 25 · Rub 124')).toBeInTheDocument()
+    expect(screen.queryByText(/parte \d de \d/)).not.toBeInTheDocument()
+    expect(screen.getByText('Total consignados')).toBeInTheDocument()
   })
 })

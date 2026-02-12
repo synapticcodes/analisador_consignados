@@ -42,6 +42,8 @@ class ConsignadoLine:
     rubrica: str | None
     valor_cent: int
     evidence: FieldEvidence
+    descricao_raw: str | None = None
+    descricao_canonica: str | None = None
 
 
 @dataclass
@@ -211,6 +213,13 @@ class PaymentExtractor:
             normalized = normalized.replace(src, dst)
         return normalized
 
+    def _canonicalize_consignado_desc(self, value: str | None) -> str:
+        """Normaliza descrição para comparação e agrupamento, sem perder o texto bruto."""
+        if not value:
+            return ""
+        collapsed = re.sub(r"\s+", " ", value).strip()
+        return collapsed.upper()
+
     def _extract_brl_from_line(self, line: str) -> float | None:
         match = re.search(
             r"(?:R\$\s*)?(-?\d{1,3}(?:\.\d{3})*,\d{2})", line
@@ -312,6 +321,10 @@ class PaymentExtractor:
                                 rubrica=str(pending["rubrica"]),
                                 valor_cent=valor_cent,
                                 evidence=FieldEvidence(page=0, text=evidence_text),
+                                descricao_raw=str(pending["desc"]),
+                                descricao_canonica=self._canonicalize_consignado_desc(
+                                    str(pending["desc"])
+                                ),
                             )
                         )
                         pending = None
@@ -326,6 +339,8 @@ class PaymentExtractor:
                                 rubrica=None,
                                 valor_cent=int(round(value * 100)),
                                 evidence=FieldEvidence(page=0, text=line),
+                                descricao_raw=line,
+                                descricao_canonica=self._canonicalize_consignado_desc(line),
                             )
                         )
                         i += 1
@@ -340,6 +355,10 @@ class PaymentExtractor:
                                     rubrica=None,
                                     valor_cent=int(round(next_value * 100)),
                                     evidence=FieldEvidence(page=0, text=evidence_text),
+                                    descricao_raw=line,
+                                    descricao_canonica=self._canonicalize_consignado_desc(
+                                        line
+                                    ),
                                 )
                             )
                             i += 2
@@ -355,6 +374,10 @@ class PaymentExtractor:
                                 rubrica=None,
                                 valor_cent=int(round(value * 100)),
                                 evidence=FieldEvidence(page=0, text=evidence_text),
+                                descricao_raw=next_line,
+                                descricao_canonica=self._canonicalize_consignado_desc(
+                                    next_line
+                                ),
                             )
                         )
                         i += 2
@@ -451,7 +474,9 @@ class PaymentExtractor:
         merged = list(existing)
         existing_keys = {
             (
-                self._normalize_for_match(line.descricao or ""),
+                self._normalize_for_match(
+                    line.descricao_canonica or line.descricao or ""
+                ),
                 line.valor_cent,
                 line.rubrica or "",
             )
@@ -460,7 +485,9 @@ class PaymentExtractor:
         added = 0
         for line in incoming:
             key = (
-                self._normalize_for_match(line.descricao or ""),
+                self._normalize_for_match(
+                    line.descricao_canonica or line.descricao or ""
+                ),
                 line.valor_cent,
                 line.rubrica or "",
             )
@@ -759,6 +786,8 @@ class PaymentExtractor:
                                     page=0,
                                     text=f"{rubrica}\n{desc}\n{val_line}",
                                 ),
+                                descricao_raw=desc,
+                                descricao_canonica=self._canonicalize_consignado_desc(desc),
                             )
                         )
 
@@ -847,6 +876,17 @@ class PaymentExtractor:
             for linha_dict in result_dict.get("linhasConsignado", []):
                 ev = linha_dict.get("evidence", {})
                 evidence = FieldEvidence(page=ev.get("page", 0), text=ev.get("text", ""))
+                descricao = linha_dict.get("descricao", "")
+                descricao_raw = (
+                    linha_dict.get("descricao_raw")
+                    or linha_dict.get("descricaoRaw")
+                    or descricao
+                )
+                descricao_canonica = (
+                    linha_dict.get("descricao_canonica")
+                    or linha_dict.get("descricaoCanonica")
+                    or self._canonicalize_consignado_desc(descricao)
+                )
 
                 valor_cent = linha_dict.get("valorCent", 0)
                 if valor_cent is None:
@@ -854,10 +894,12 @@ class PaymentExtractor:
 
                 linhas.append(
                     ConsignadoLine(
-                        descricao=linha_dict.get("descricao", ""),
+                        descricao=descricao,
                         rubrica=linha_dict.get("rubrica"),
                         valor_cent=valor_cent,
                         evidence=evidence,
+                        descricao_raw=descricao_raw,
+                        descricao_canonica=descricao_canonica,
                     )
                 )
 

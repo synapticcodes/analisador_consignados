@@ -306,6 +306,13 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                                 consignado_lines=[
                                     {
                                         "descricao": linha.descricao,
+                                        "descricao_raw": (
+                                            linha.descricao_raw or linha.descricao
+                                        ),
+                                        "descricao_canonica": (
+                                            linha.descricao_canonica
+                                            or linha.descricao
+                                        ),
                                         "rubrica": linha.rubrica,
                                         "valor_cent": linha.valor_cent,
                                     }

@@ -430,9 +430,24 @@ async def get_job_result(
                 valor_cent = line.get("valor_cent")
                 if valor_cent is None:
                     continue
+                descricao_legacy = str(line.get("descricao", "") or "")
+                descricao_raw = (
+                    line.get("descricao_raw")
+                    or line.get("descricaoRaw")
+                    or descricao_legacy
+                )
+                descricao_canonica = (
+                    line.get("descricao_canonica")
+                    or line.get("descricaoCanonica")
+                    or descricao_legacy
+                )
                 consignado_lines_payload.append(
                     ConsignadoLineDetail(
-                        descricao=line.get("descricao", ""),
+                        descricao=descricao_legacy,
+                        descricao_raw=str(descricao_raw) if descricao_raw else None,
+                        descricao_canonica=(
+                            str(descricao_canonica) if descricao_canonica else None
+                        ),
                         rubrica=line.get("rubrica"),
                         valor_cent=int(valor_cent),
                     )

@@ -1,5 +1,3 @@
-import { UnknownsCta } from './unknowns-cta'
-
 type MethodologyFooterProps = {
   whatsappText: string
 }
@@ -15,8 +13,11 @@ export function MethodologyFooter({ whatsappText }: MethodologyFooterProps) {
           vêm desses documentos. Simulações são estimativas e dependem de negociação.
         </p>
       </div>
-      <div className="mt-6">
-        <UnknownsCta whatsappText={whatsappText} />
+      <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <p className="text-sm text-slate-900">
+          Próximo passo: fale com nossa equipe no WhatsApp para análise completa.
+        </p>
+        <p className="mt-2 text-xs text-slate-600">{whatsappText}</p>
       </div>
     </section>
   )

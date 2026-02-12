@@ -7,7 +7,6 @@ import { CoverSummary } from '@/components/pdf-sections/cover-summary'
 import { DebtMapSection } from '@/components/pdf-sections/debt-map-section'
 import { INSSMarginSection } from '@/components/pdf-sections/inss-margin-section'
 import { MethodologyFooter } from '@/components/pdf-sections/methodology-footer'
-import { OffersSection } from '@/components/pdf-sections/offers-section'
 import { SavingsSection } from '@/components/pdf-sections/savings-section'
 import { TimelineSection } from '@/components/pdf-sections/timeline-section'
 import { type FinalResultResponse } from '@/types/api'
@@ -56,7 +55,6 @@ const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
     const hasContracts = (result.loan_contracts?.length ?? 0) > 0
     const hasConsignadoLines = (result.consignado_lines?.length ?? 0) > 0
     const hasMargin = result.inss_margin !== null && result.inss_margin !== undefined
-    const hasOffers = (result.offers?.length ?? 0) > 0
     const hasSavings = enablePhase2 && !!result.savings_simulation
     const hasTimeline = enablePhase3 && (result.historical_contracts?.length ?? 0) > 0
     const hasDebtMap = enablePhase3 && (hasContracts || hasConsignadoLines)
@@ -68,29 +66,31 @@ const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
         key: 'p1',
         render: () => <CoverSummary result={result} clientName={clientName} dateLabel={dateLabel} />,
       },
-      ...(hasContracts || hasConsignadoLines
+      ...(hasContracts
         ? [
             {
-              key: 'p2',
+              key: 'contracts',
               render: () => (
-                <div className="space-y-6">
-                  {hasContracts && <ContractsTable contracts={result.loan_contracts ?? []} />}
-                  {hasConsignadoLines && (
-                    <ConsignadoBreakdown lines={result.consignado_lines ?? []} />
-                  )}
-                </div>
+                <ContractsTable contracts={result.loan_contracts ?? []} />
               ),
             },
           ]
         : []),
-      ...(hasMargin || hasOffers || hasSavings || hasDebtMap || hasTimeline || hasCostBreakdown
+      ...(hasConsignadoLines
         ? [
             {
-              key: 'p3',
+              key: 'consignado',
+              render: () => <ConsignadoBreakdown lines={result.consignado_lines ?? []} />,
+            },
+          ]
+        : []),
+      ...(hasMargin || hasSavings || hasDebtMap || hasTimeline || hasCostBreakdown
+        ? [
+            {
+              key: 'insights',
               render: () => (
                 <div className="space-y-5">
                   {hasMargin && result.inss_margin && <INSSMarginSection margin={result.inss_margin} />}
-                  {hasOffers && <OffersSection offers={result.offers ?? []} />}
                   {hasCostBreakdown && (
                     <CostBreakdownSection
                       totalJurosCent={result.custo_juros_total_cent ?? null}
@@ -104,6 +104,7 @@ const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
                     <DebtMapSection
                       contracts={result.loan_contracts ?? []}
                       consignadoLines={result.consignado_lines ?? []}
+                      salarioLiquidoCent={result.salario_liquido_cent}
                     />
                   )}
                   {hasTimeline && (
