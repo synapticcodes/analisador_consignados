@@ -174,6 +174,58 @@ describe('ResultSnapshot', () => {
     expect(screen.queryByText('O que ainda não sabemos')).not.toBeInTheDocument()
   })
 
+  it('não renderiza a seção Simulação de Economia no relatório', () => {
+    render(
+      <ResultSnapshot
+        result={buildResult({
+          savings_simulation: {
+            economia_mensal_total_cent: 978,
+            economia_total_restante_cent: 11732,
+            taxa_referencia_mensal_percent: '1,5%',
+            disclaimer: 'Estimativa para teste',
+            contratos: [],
+          },
+        })}
+        dateLabel="06/02/2026"
+      />
+    )
+
+    expect(screen.queryByText('Simulação de Economia')).not.toBeInTheDocument()
+  })
+
+  it('cria páginas de continuação no mapa de dívidas e mostra reconciliação só na primeira', () => {
+    const manyContracts = Array.from({ length: 9 }).map((_, index) => ({
+      id: `m-${index}`,
+      lender_name: `Banco ${index + 1}`,
+      contract_id: `${index + 1}`,
+      parcela_cent: 9000 - index * 500,
+      parcelas_restantes: 12,
+      valor_total_cent: 100000,
+      taxa_juros: null,
+      status: 'ATIVO',
+      cet_mensal: null,
+      cet_anual: null,
+      iof_cent: null,
+      valor_emprestado_cent: null,
+    }))
+
+    render(
+      <ResultSnapshot
+        result={buildResult({
+          loan_contracts: manyContracts,
+          consignado_lines: [],
+          total_descontos_cent: 120000,
+          consignado_mensal_cent: 77345,
+        })}
+        dateLabel="06/02/2026"
+      />
+    )
+
+    expect(screen.getByText('Mapa de Dívidas por Banco')).toBeInTheDocument()
+    expect(screen.getByText('Mapa de Dívidas por Banco (continuação)')).toBeInTheDocument()
+    expect(screen.getAllByText('Reconciliação dos descontos')).toHaveLength(1)
+  })
+
   it('pagina linhas do contracheque sem estourar página quando há muitas linhas', () => {
     const lines = Array.from({ length: 25 }).map((_, index) => ({
       descricao: `EMPREST BCO TESTE ${index + 1}`,

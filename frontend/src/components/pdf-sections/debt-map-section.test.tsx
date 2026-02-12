@@ -141,6 +141,109 @@ describe('DebtMapSection', () => {
     expect(screen.getByText(/8\.668,98/)).toBeInTheDocument()
   })
 
+  it('oculta reconciliação quando total de descontos é zero ou não aplicável', () => {
+    render(
+      <DebtMapSection
+        contracts={[]}
+        consignadoLines={[
+          {
+            descricao: 'EMPREST BCO PRIVADOS - PAN',
+            rubrica: '086',
+            valor_cent: 77345,
+          },
+        ]}
+        consignadoMensalCent={77345}
+        totalDescontosCent={0}
+      />
+    )
+
+    expect(screen.queryByText('Reconciliação dos descontos')).not.toBeInTheDocument()
+    expect(screen.getByText('Banco PAN')).toBeInTheDocument()
+  })
+
+  it('não permite valor negativo em outros descontos quando consignado excede total', () => {
+    render(
+      <DebtMapSection
+        contracts={[]}
+        consignadoLines={[
+          {
+            descricao: 'EMPREST BCO PRIVADOS - PAN',
+            rubrica: '086',
+            valor_cent: 77345,
+          },
+        ]}
+        consignadoMensalCent={77345}
+        totalDescontosCent={50000}
+      />
+    )
+
+    expect(screen.getByText('Reconciliação dos descontos')).toBeInTheDocument()
+    expect(screen.getByText('Outros descontos (não consignados)')).toBeInTheDocument()
+    expect(screen.queryByText(/-R\$/)).not.toBeInTheDocument()
+  })
+
+  it('permite renderizar página de continuação sem reconciliação via offset/limite', () => {
+    render(
+      <DebtMapSection
+        contracts={[
+          {
+            id: 'a',
+            lender_name: 'Banco A',
+            contract_id: '1',
+            parcela_cent: 30000,
+            parcelas_restantes: 12,
+            valor_total_cent: 100000,
+            taxa_juros: null,
+            status: 'ATIVO',
+            cet_mensal: null,
+            cet_anual: null,
+            iof_cent: null,
+            valor_emprestado_cent: null,
+          },
+          {
+            id: 'b',
+            lender_name: 'Banco B',
+            contract_id: '2',
+            parcela_cent: 20000,
+            parcelas_restantes: 12,
+            valor_total_cent: 100000,
+            taxa_juros: null,
+            status: 'ATIVO',
+            cet_mensal: null,
+            cet_anual: null,
+            iof_cent: null,
+            valor_emprestado_cent: null,
+          },
+          {
+            id: 'c',
+            lender_name: 'Banco C',
+            contract_id: '3',
+            parcela_cent: 10000,
+            parcelas_restantes: 12,
+            valor_total_cent: 100000,
+            taxa_juros: null,
+            status: 'ATIVO',
+            cet_mensal: null,
+            cet_anual: null,
+            iof_cent: null,
+            valor_emprestado_cent: null,
+          },
+        ]}
+        consignadoLines={[]}
+        totalDescontosCent={100000}
+        rowOffset={1}
+        rowLimit={1}
+        title="Mapa de Dívidas por Banco (continuação)"
+      />
+    )
+
+    expect(screen.getByText('Mapa de Dívidas por Banco (continuação)')).toBeInTheDocument()
+    expect(screen.queryByText('Reconciliação dos descontos')).not.toBeInTheDocument()
+    expect(screen.getByText('Banco B')).toBeInTheDocument()
+    expect(screen.queryByText('Banco A')).not.toBeInTheDocument()
+    expect(screen.queryByText('Banco C')).not.toBeInTheDocument()
+  })
+
   it('reconhece aliases de bancos do contracheque (BRB, INBURSA, PRB, SAF)', () => {
     render(
       <DebtMapSection
