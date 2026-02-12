@@ -94,6 +94,155 @@ def test_extract_inss_margin_data_keeps_rmc_without_base():
 
 
 @pytest.mark.unit
+def test_extract_inss_margin_data_parses_benefit_values_vertical_layout():
+    extractor = LoanExtractor(llm_client=MockLLMClient())
+    text = """
+    Instituto Nacional do Seguro Social
+    Margem para Empréstimo/Cartão e Resumo Financeiro
+    VALORES DO BENEFÍCIO
+    BASE DE CÁLCULO
+    TOTAL COMPROMETIDO
+    MÁXIMO DE COMPROMETIMENTO PERMITIDO
+    MARGEM EXTRAPOLADA
+    R$1.621,00
+    R$729,45
+    R$611,35
+    R$0,00
+    """
+
+    parsed = extractor.extract_inss_margin_data(text)
+    assert parsed is not None
+    assert parsed["base_calculo_cent"] == 162100
+    assert parsed["max_comprometimento_cent"] == 72945
+    assert parsed["total_comprometido_cent"] == 61135
+
+
+@pytest.mark.unit
+def test_extract_inss_margin_data_parses_valores_por_modalidade_layout():
+    extractor = LoanExtractor(llm_client=MockLLMClient())
+    text = """
+    Instituto Nacional do Seguro Social
+    Margem para Empréstimo/Cartão e Resumo Financeiro
+
+    EMPRÉSTIMOS RMC
+    R$567,35
+    R$37,05
+    R$530,30
+    MARGEM DISPONÍVEL*
+    R$0,00
+    MARGEM RESERVADA R$0,00
+    MARGEM EXTRAPOLADA***
+    R$81,05
+    R$0,00
+    R$0,00
+    -
+    R$81,05
+    MARGEM CONSIGNÁVEL
+    MARGEM UTILIZADA**
+    RCC
+    R$81,05
+    R$0,00
+    -
+    R$81,05
+    R$0,00
+    VALORES POR MODALIDADE
+
+    VALORES DO BENEFÍCIO
+    BASE DE CÁLCULO
+    TOTAL COMPROMETIDO
+    MÁXIMO DE COMPROMETIMENTO PERMITIDO
+    MARGEM EXTRAPOLADA
+    R$1.621,00
+    R$729,45
+    R$611,35
+    R$0,00
+    """
+
+    parsed = extractor.extract_inss_margin_data(text)
+    assert parsed is not None
+    assert parsed["margem_emprestimo_cent"] == 3705
+    assert parsed["margem_rmc_cent"] == 0
+    assert parsed["margem_rcc_cent"] == 8105
+
+
+@pytest.mark.unit
+def test_extract_inss_margin_data_parses_valores_por_modalidade_split_header_lines():
+    extractor = LoanExtractor(llm_client=MockLLMClient())
+    text = """
+    Instituto Nacional do Seguro Social
+    Margem para Empréstimo/Cartão e Resumo Financeiro
+    EMPRÉSTIMOS
+    RMC
+    R$567,35
+    R$37,05
+    R$530,30
+    MARGEM DISPONÍVEL*
+    R$0,00
+    MARGEM RESERVADA
+    R$0,00
+    MARGEM EXTRAPOLADA***
+    R$81,05
+    R$0,00
+    R$0,00
+    -
+    R$81,05
+    MARGEM CONSIGNÁVEL
+    MARGEM UTILIZADA**
+    RCC
+    R$81,05
+    R$0,00
+    -
+    R$81,05
+    R$0,00
+    VALORES POR MODALIDADE
+
+    VALORES DO BENEFÍCIO
+    BASE DE CÁLCULO
+    TOTAL COMPROMETIDO
+    MÁXIMO DE COMPROMETIMENTO PERMITIDO
+    MARGEM EXTRAPOLADA
+    R$1.621,00
+    R$729,45
+    R$611,35
+    R$0,00
+    """
+
+    parsed = extractor.extract_inss_margin_data(text)
+    assert parsed is not None
+    assert parsed["margem_emprestimo_cent"] == 3705
+    assert parsed["margem_rmc_cent"] == 0
+    assert parsed["margem_rcc_cent"] == 8105
+
+
+@pytest.mark.unit
+def test_extract_inss_margin_data_parses_rmc_table_active_contract_layout():
+    extractor = LoanExtractor(llm_client=MockLLMClient())
+    text = """
+    CARTÃO DE CRÉDITO - RMC
+    CONTRATOS ATIVOS E SUSPENSOS*
+    CONTRATO TIPO BANCO SITUAÇÃO
+    52-0141867001/15
+    707 - BANCO DAYCOVAL
+    S A
+    R$1.100,00
+    Ativo
+    Averbação nova
+    23/12/15
+    R$81,05
+    Reserva de
+    Margem para
+    Cartão (RMC)
+    *Contratos que comprometem a margem consignável.
+    """
+
+    parsed = extractor.extract_inss_margin_data(text)
+    assert parsed is not None
+    assert parsed["rmc_banco"] == "DAYCOVAL S A"
+    assert parsed["rmc_limite_cent"] == 110000
+    assert parsed["rmc_reservado_cent"] == 8105
+
+
+@pytest.mark.unit
 def test_contract_fallback_does_not_use_valor_emprestado_as_valor_total():
     extractor = LoanExtractor(llm_client=MockLLMClient())
     text = """
@@ -209,6 +358,32 @@ Averbação por refinanciamento
     assert contract.cet_mensal == "1,81%"
     assert contract.cet_anual == "24,14%"
     assert contract.taxa_juros == "1,80%"
+
+
+@pytest.mark.unit
+def test_contract_fallback_keeps_rate_fields_null_when_not_explicit_in_contract_line():
+    extractor = LoanExtractor(llm_client=MockLLMClient())
+    text = """
+EMPRÉSTIMOS BANCÁRIOS
+CONTRATOS ATIVOS E SUSPENSOS
+611351
+375
+029 -
+BANCO
+ITAU
+CONSIGNADO
+SA
+04/2020 03/2026 72 R$21,15 R$1.522,80Ativo Averbação nova
+12/03/20 R$748,14
+"""
+
+    contracts = extractor._extract_contracts_from_text(text, fallback_alert=None)
+    assert len(contracts) == 1
+    contract = contracts[0]
+    assert contract.taxa_juros is None
+    assert contract.cet_mensal is None
+    assert contract.cet_anual is None
+    assert contract.iof_cent is None
 
 
 @pytest.mark.unit

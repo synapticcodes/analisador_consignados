@@ -1373,6 +1373,20 @@ class LoanExtractor:
             values.append((value, match.group(0)))
         return values
 
+    def _parse_currency_values_strict(self, text: str) -> list[tuple[float, str]]:
+        """
+        Extrai valores monetários em BRL sem concatenar dígitos separados por espaço.
+        Usado em modo rígido para evitar interpretações indevidas em tabelas quebradas.
+        """
+        pattern = re.compile(r"R\$\s*([\d\.]+)\s*,\s*(\d{2})")
+        values: list[tuple[float, str]] = []
+        for match in pattern.finditer(text or ""):
+            whole = match.group(1).replace(".", "")
+            cents = match.group(2)
+            value = float(f"{whole}.{cents}")
+            values.append((value, match.group(0)))
+        return values
+
     def _parse_brl_to_cent(self, value: str | None) -> int | None:
         if not value:
             return None
@@ -1428,6 +1442,176 @@ class LoanExtractor:
                 return None, None
             return self._parse_brl_to_cent(match.group(1)), match.group(0)
 
+        def capture_benefit_values_vertical_layout() -> dict[str, int | str | None]:
+            section_match = re.search(
+                r"VALORES\s+DO\s+BENEF[ÍI]CIO(.*?)(?:\n\s*\d+\s*/\s*\d+|\Z)",
+                text or "",
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+            if not section_match:
+                return {
+                    "base_calculo_cent": None,
+                    "max_comprometimento_cent": None,
+                    "total_comprometido_cent": None,
+                    "base_evidence": None,
+                    "max_evidence": None,
+                    "total_evidence": None,
+                }
+
+            section_text = section_match.group(1)
+            currency_matches = re.findall(
+                r"R\$\s*([\d\.]+,\d{2})", section_text, flags=re.IGNORECASE
+            )
+            parsed_values = [
+                self._parse_brl_to_cent(match)
+                for match in currency_matches
+                if self._parse_brl_to_cent(match) is not None
+            ]
+            if len(parsed_values) < 3:
+                return {
+                    "base_calculo_cent": None,
+                    "max_comprometimento_cent": None,
+                    "total_comprometido_cent": None,
+                    "base_evidence": None,
+                    "max_evidence": None,
+                    "total_evidence": None,
+                }
+
+            base_cent = parsed_values[0]
+            second_cent = parsed_values[1]
+            third_cent = parsed_values[2]
+            max_cent = max(second_cent, third_cent)
+            total_cent = min(second_cent, third_cent)
+
+            return {
+                "base_calculo_cent": base_cent,
+                "max_comprometimento_cent": max_cent,
+                "total_comprometido_cent": total_cent,
+                "base_evidence": f"VALORES DO BENEFÍCIO ... R$ {currency_matches[0]}",
+                "max_evidence": (
+                    "VALORES DO BENEFÍCIO (layout vertical): "
+                    "MÁXIMO/TOTAL mapeados por consistência numérica"
+                ),
+                "total_evidence": (
+                    "VALORES DO BENEFÍCIO (layout vertical): "
+                    "MÁXIMO/TOTAL mapeados por consistência numérica"
+                ),
+            }
+
+        def capture_modalidade_available_margins() -> dict[str, int | str | None]:
+            section_match = re.search(
+                r"Margem\s+para\s+Empr[ée]stimo/Cart[ãa]o\s+e\s+Resumo\s+Financeiro(.*?)(?:VALORES\s+POR\s+MODALIDADE|\Z)",
+                text or "",
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+            if not section_match:
+                return {
+                    "margem_emprestimo_cent": None,
+                    "margem_rmc_cent": None,
+                    "margem_rcc_cent": None,
+                    "margem_emprestimo_evidence": None,
+                    "margem_rmc_evidence": None,
+                    "margem_rcc_evidence": None,
+                }
+
+            section_text = section_match.group(1)
+            lines = [ln.strip() for ln in section_text.splitlines() if ln.strip()]
+
+            def currencies_in_line(line: str) -> list[int]:
+                values: list[int] = []
+                for token in re.findall(r"R\$\s*([\d\.]+,\d{2})", line, flags=re.IGNORECASE):
+                    parsed = self._parse_brl_to_cent(token)
+                    if parsed is not None:
+                        values.append(parsed)
+                return values
+
+            margem_emprestimo_cent = None
+            margem_emprestimo_evidence = None
+            values_in_order: list[int] = []
+            for ln in lines:
+                values_in_order.extend(currencies_in_line(ln))
+
+            for idx in range(len(values_in_order) - 2):
+                a, b, c = values_in_order[idx], values_in_order[idx + 1], values_in_order[idx + 2]
+                if a > 0 and abs(a - (b + c)) <= 1:
+                    margem_emprestimo_cent = min(b, c)
+                    margem_emprestimo_evidence = (
+                        "VALORES POR MODALIDADE (layout em colunas): "
+                        "margem empréstimo inferida por identidade consignável=utilizada+disponível"
+                    )
+                    break
+
+            total_disponivel_cent = None
+            if (
+                max_comprometimento_cent is not None
+                and total_comprometido_cent is not None
+                and max_comprometimento_cent >= total_comprometido_cent
+            ):
+                total_disponivel_cent = (
+                    max_comprometimento_cent - total_comprometido_cent
+                )
+
+            remaining_modal_cent = None
+            if (
+                total_disponivel_cent is not None
+                and margem_emprestimo_cent is not None
+                and total_disponivel_cent >= margem_emprestimo_cent
+            ):
+                remaining_modal_cent = total_disponivel_cent - margem_emprestimo_cent
+
+            margem_rcc_cent = None
+            margem_rmc_cent = None
+            margem_rcc_evidence = None
+            margem_rmc_evidence = None
+
+            rcc_idx = next(
+                (
+                    idx
+                    for idx, ln in enumerate(lines)
+                    if "RCC" in self._normalize_for_match(ln)
+                ),
+                None,
+            )
+            rcc_window_values: list[int] = []
+            if rcc_idx is not None:
+                for ln in lines[rcc_idx + 1 : rcc_idx + 10]:
+                    rcc_window_values.extend(currencies_in_line(ln))
+
+            if remaining_modal_cent is not None:
+                if remaining_modal_cent > 0:
+                    if remaining_modal_cent in rcc_window_values:
+                        margem_rcc_cent = remaining_modal_cent
+                    elif rcc_window_values:
+                        candidates = [v for v in rcc_window_values if 0 <= v <= remaining_modal_cent]
+                        if candidates:
+                            margem_rcc_cent = max(candidates)
+                        else:
+                            margem_rcc_cent = remaining_modal_cent
+                    else:
+                        margem_rcc_cent = remaining_modal_cent
+                else:
+                    margem_rcc_cent = 0
+
+                if margem_rcc_cent is not None:
+                    margem_rmc_cent = max(remaining_modal_cent - margem_rcc_cent, 0)
+                    margem_rcc_evidence = (
+                        "VALORES POR MODALIDADE (layout em colunas): "
+                        "margem RCC inferida pela coluna RCC e reconciliação com máximo-comprometido"
+                    )
+                    margem_rmc_evidence = (
+                        "VALORES POR MODALIDADE (layout em colunas): "
+                        "margem RMC inferida por reconciliação com máximo-comprometido"
+                    )
+
+            return {
+                "margem_emprestimo_cent": margem_emprestimo_cent,
+                "margem_rmc_cent": margem_rmc_cent,
+                "margem_rcc_cent": margem_rcc_cent,
+                "margem_emprestimo_evidence": margem_emprestimo_evidence,
+                "margem_rmc_evidence": margem_rmc_evidence,
+                "margem_rcc_evidence": margem_rcc_evidence,
+            }
+
         base_calculo_cent, base_evidence = capture_brl(r"BASE\s+DE\s+C[ÁA]LCULO")
         max_comprometimento_cent, max_evidence = capture_brl(
             r"M[ÁA]XIMO\s+DE\s+COMPROMETIMENTO"
@@ -1435,6 +1619,23 @@ class LoanExtractor:
         total_comprometido_cent, total_evidence = capture_brl(
             r"TOTAL\s+COMPROMETIDO"
         )
+
+        if (
+            base_calculo_cent is None
+            or max_comprometimento_cent is None
+            or total_comprometido_cent is None
+        ):
+            vertical_values = capture_benefit_values_vertical_layout()
+            if base_calculo_cent is None:
+                base_calculo_cent = vertical_values["base_calculo_cent"]
+                base_evidence = vertical_values["base_evidence"]
+            if max_comprometimento_cent is None:
+                max_comprometimento_cent = vertical_values["max_comprometimento_cent"]
+                max_evidence = vertical_values["max_evidence"]
+            if total_comprometido_cent is None:
+                total_comprometido_cent = vertical_values["total_comprometido_cent"]
+                total_evidence = vertical_values["total_evidence"]
+
         margem_emprestimo_cent, margem_emprestimo_evidence = capture_brl(
             r"MARGEM\s+DISPON[ÍI]VEL\s*[—-]?\s*EMPR[ÉE]STIMO"
         )
@@ -1444,6 +1645,22 @@ class LoanExtractor:
         margem_rcc_cent, margem_rcc_evidence = capture_brl(
             r"MARGEM\s+DISPON[ÍI]VEL\s*[—-]?\s*RCC"
         )
+
+        if (
+            margem_emprestimo_cent is None
+            or margem_rmc_cent is None
+            or margem_rcc_cent is None
+        ):
+            modalidade_values = capture_modalidade_available_margins()
+            if margem_emprestimo_cent is None:
+                margem_emprestimo_cent = modalidade_values["margem_emprestimo_cent"]
+                margem_emprestimo_evidence = modalidade_values["margem_emprestimo_evidence"]
+            if margem_rmc_cent is None:
+                margem_rmc_cent = modalidade_values["margem_rmc_cent"]
+                margem_rmc_evidence = modalidade_values["margem_rmc_evidence"]
+            if margem_rcc_cent is None:
+                margem_rcc_cent = modalidade_values["margem_rcc_cent"]
+                margem_rcc_evidence = modalidade_values["margem_rcc_evidence"]
 
         cet_mensal = self._extract_percentage(normalized, r"CET\s+MENSAL")
         cet_anual = self._extract_percentage(normalized, r"CET\s+ANUAL")
@@ -1526,6 +1743,51 @@ class LoanExtractor:
             result["rmc_reservado_cent"] = self._parse_brl_to_cent(
                 reservado_match.group(1)
             )
+
+        # Fallback para layout tabular do INSS (página "CARTÃO DE CRÉDITO - RMC",
+        # seção "CONTRATOS ATIVOS E SUSPENSOS"), onde o "reservado" aparece
+        # como segunda moeda da linha, antes do texto "Reserva de Margem...".
+        if (
+            result["rmc_banco"] is None
+            or result["rmc_limite_cent"] is None
+            or result["rmc_reservado_cent"] is None
+        ):
+            active_section_match = re.search(
+                r"CART[ÃA]O\s+DE\s+CR[ÉE]DITO\s*-\s*RMC.*?CONTRATOS\s+ATIVOS\s+E\s+SUSPENSOS\*?(.*?)(?:\*Contratos\s+que\s+comprometem|CONTRATOS\s+EXCLU[ÍI]DOS|DESCONTOS\s+DE\s+CART[ÃA]O|\Z)",
+                text,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+            if active_section_match:
+                active_section = active_section_match.group(1)
+
+                if result["rmc_banco"] is None:
+                    bank_row_match = re.search(
+                        r"(\d{3}\s*-\s*BANCO[ A-Z0-9\-\.\n]{2,120}?)(?=\s+R\$\s*[\d\.]+,\d{2})",
+                        active_section,
+                        flags=re.IGNORECASE | re.DOTALL,
+                    )
+                    if bank_row_match:
+                        result["rmc_banco"] = re.sub(
+                            r"\s+",
+                            " ",
+                            bank_row_match.group(1).strip(),
+                        )
+
+                values_in_section = re.findall(
+                    r"R\$\s*([\d\.]+,\d{2})",
+                    active_section,
+                    flags=re.IGNORECASE,
+                )
+                parsed_values = [
+                    self._parse_brl_to_cent(value)
+                    for value in values_in_section
+                    if self._parse_brl_to_cent(value) is not None
+                ]
+                if parsed_values:
+                    if result["rmc_limite_cent"] is None:
+                        result["rmc_limite_cent"] = parsed_values[0]
+                    if result["rmc_reservado_cent"] is None and len(parsed_values) > 1:
+                        result["rmc_reservado_cent"] = parsed_values[1]
 
         return result
 
@@ -2062,29 +2324,39 @@ class LoanExtractor:
                 re.IGNORECASE,
             )
             normalized_block = re.sub(r"\s+", " ", block_text or "")
+            status_marker = re.search(r"ATIVO|SUSPENS|EXCLU|ENCERR", normalized_block, re.IGNORECASE)
+            if status_marker:
+                pre_status_block = normalized_block[: status_marker.start()]
+                post_status_block = normalized_block[status_marker.end() :]
+            else:
+                pre_status_block = normalized_block
+                post_status_block = ""
+            pre_status_currency_vals = self._parse_currency_values_strict(pre_status_block)
 
             if current.get("total_parcelas") is None:
                 qtde_match = re.search(
                     r"(?:\d{2}/\d{4}\s+){1,2}(\d{1,3})\s+R\$\s*[\d\.]+\s*,\s*\d{2}",
-                    normalized_block,
+                    pre_status_block,
                 )
                 if qtde_match:
                     current["total_parcelas"] = int(qtde_match.group(1))
 
-            if emprestado_val is None and len(currency_vals) > 1:
-                emprestado_val = currency_vals[1]
+            if emprestado_val is None and len(pre_status_currency_vals) > 1:
+                emprestado_val = pre_status_currency_vals[1]
 
             iof_cent = self._parse_brl_to_cent(iof_match.group(1)) if iof_match else None
-            if iof_cent is None and len(currency_vals) > 2:
-                iof_cent = int(round(currency_vals[2][0] * 100))
+            if iof_cent is None and len(pre_status_currency_vals) > 2:
+                iof_cent = int(round(pre_status_currency_vals[2][0] * 100))
 
-            rate_candidates = re.findall(
-                r"(?<![\d\.])(\d{1,2},\d{2})(?!\d)", normalized_block
+            post_status_no_currency = re.sub(
+                r"R\$\s*[\d\.]+\s*,\s*\d{2}",
+                " ",
+                post_status_block,
+                flags=re.IGNORECASE,
             )
-            if iof_cent is not None and rate_candidates:
-                iof_token = f"{iof_cent / 100:.2f}".replace(".", ",")
-                if rate_candidates[0] == iof_token:
-                    rate_candidates = rate_candidates[1:]
+            rate_candidates = re.findall(
+                r"(?<![\d\.])(\d{1,2},\d{2})(?!\d)", post_status_no_currency
+            )
             if cet_mensal is None and len(rate_candidates) > 0:
                 cet_mensal = f"{rate_candidates[0]}%"
             if cet_anual is None and len(rate_candidates) > 1:

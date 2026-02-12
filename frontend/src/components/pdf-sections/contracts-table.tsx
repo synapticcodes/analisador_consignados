@@ -7,15 +7,21 @@ type ContractsTableProps = {
 export function ContractsTable({ contracts }: ContractsTableProps) {
   if (contracts.length === 0) return null
 
+  const MISSING_TEXT = 'não consta'
   const ativos = contracts.filter((item) => item.status !== 'QUITADO')
   const quitados = contracts.filter((item) => item.status === 'QUITADO')
   const totalParcela = ativos.reduce((acc, item) => acc + (item.parcela_cent ?? 0), 0)
   const totalSaldo = ativos.reduce((acc, item) => acc + (item.valor_total_cent ?? 0), 0)
-  const totalIof = ativos.reduce((acc, item) => acc + (item.iof_cent ?? 0), 0)
-  const totalEmprestado = ativos.reduce(
+  const iofContracts = ativos.filter((item) => item.iof_cent !== null)
+  const emprestadoContracts = ativos.filter((item) => item.valor_emprestado_cent !== null)
+  const totalIof = iofContracts.reduce((acc, item) => acc + (item.iof_cent ?? 0), 0)
+  const totalEmprestado = emprestadoContracts.reduce(
     (acc, item) => acc + (item.valor_emprestado_cent ?? 0),
     0
   )
+
+  const displayCentValue = (value: number | null | undefined): string =>
+    value === null || value === undefined ? MISSING_TEXT : formatCurrency(value)
 
   return (
     <section className="space-y-4">
@@ -40,22 +46,20 @@ export function ContractsTable({ contracts }: ContractsTableProps) {
                 {contract.lender_name || 'Banco não identificado'}
               </td>
               <td className="border border-slate-200 px-3 py-2">
-                {formatCurrency(contract.parcela_cent)}
-              </td>
-              <td className="border border-slate-200 px-3 py-2">{contract.parcelas_restantes ?? '--'}</td>
-              <td className="border border-slate-200 px-3 py-2">
-                {formatCurrency(contract.valor_total_cent)}
-              </td>
-              <td className="border border-slate-200 px-3 py-2">{contract.taxa_juros ?? '—'}</td>
-              <td className="border border-slate-200 px-3 py-2">
-                {contract.cet_mensal ?? contract.cet_anual ?? '—'}
+                {displayCentValue(contract.parcela_cent)}
               </td>
               <td className="border border-slate-200 px-3 py-2">
-                {formatCurrency(contract.iof_cent)}
+                {contract.parcelas_restantes ?? MISSING_TEXT}
               </td>
               <td className="border border-slate-200 px-3 py-2">
-                {formatCurrency(contract.valor_emprestado_cent)}
+                {displayCentValue(contract.valor_total_cent)}
               </td>
+              <td className="border border-slate-200 px-3 py-2">{contract.taxa_juros ?? MISSING_TEXT}</td>
+              <td className="border border-slate-200 px-3 py-2">
+                {contract.cet_mensal ?? contract.cet_anual ?? MISSING_TEXT}
+              </td>
+              <td className="border border-slate-200 px-3 py-2">{displayCentValue(contract.iof_cent)}</td>
+              <td className="border border-slate-200 px-3 py-2">{displayCentValue(contract.valor_emprestado_cent)}</td>
             </tr>
           ))}
           <tr className="bg-slate-50 font-semibold">
@@ -65,9 +69,13 @@ export function ContractsTable({ contracts }: ContractsTableProps) {
             <td className="border border-slate-200 px-3 py-2">{formatCurrency(totalSaldo)}</td>
             <td className="border border-slate-200 px-3 py-2">—</td>
             <td className="border border-slate-200 px-3 py-2">—</td>
-            <td className="border border-slate-200 px-3 py-2">{formatCurrency(totalIof)}</td>
             <td className="border border-slate-200 px-3 py-2">
-              {formatCurrency(totalEmprestado)}
+              {iofContracts.length > 0 ? formatCurrency(totalIof) : MISSING_TEXT}
+            </td>
+            <td className="border border-slate-200 px-3 py-2">
+              {emprestadoContracts.length > 0
+                ? formatCurrency(totalEmprestado)
+                : MISSING_TEXT}
             </td>
           </tr>
         </tbody>

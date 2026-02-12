@@ -47,4 +47,21 @@ describe('ContractsTable', () => {
     expect(screen.getByText('R$ 8,00')).toBeInTheDocument()
     expect(screen.getByText('R$ 1.150,00')).toBeInTheDocument()
   })
+
+  it('exibe "não consta" quando campo contratual não está presente', () => {
+    const withoutEvidence: LoanContractDetail[] = [
+      {
+        ...CONTRACTS[0],
+        taxa_juros: null,
+        cet_mensal: null,
+        cet_anual: null,
+        iof_cent: null,
+        valor_emprestado_cent: null,
+      },
+    ]
+
+    render(<ContractsTable contracts={withoutEvidence} />)
+
+    expect(screen.getAllByText('não consta').length).toBeGreaterThan(0)
+  })
 })
