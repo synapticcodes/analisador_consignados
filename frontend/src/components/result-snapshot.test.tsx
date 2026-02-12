@@ -226,6 +226,34 @@ describe('ResultSnapshot', () => {
     expect(screen.getAllByText('Reconciliação dos descontos')).toHaveLength(1)
   })
 
+  it('pagina timeline em múltiplas páginas quando há muitos eventos históricos', () => {
+    const manyHistory = Array.from({ length: 12 }).map((_, index) => ({
+      id: `h-${index}`,
+      lender_name: `Banco Histórico ${index + 1}`,
+      contract_id: `${1000 + index}`,
+      data_contratacao: `2025-${String((index % 12) + 1).padStart(2, '0')}-01`,
+      data_quitacao: `2025-${String((index % 12) + 1).padStart(2, '0')}-01`,
+      parcela_cent: 10000,
+      valor_emprestado_cent: null,
+      motivo_encerramento: 'Encerrado',
+    }))
+
+    render(
+      <ResultSnapshot
+        result={buildResult({
+          historical_contracts: manyHistory,
+        })}
+        dateLabel="06/02/2026"
+      />
+    )
+
+    expect(screen.getByText('Timeline de Refinanciamentos')).toBeInTheDocument()
+    expect(
+      screen.getAllByText('Timeline de Refinanciamentos (continuação)').length
+    ).toBeGreaterThan(0)
+    expect(screen.getAllByText('Eventos identificados:')).toHaveLength(1)
+  })
+
   it('pagina linhas do contracheque sem estourar página quando há muitas linhas', () => {
     const lines = Array.from({ length: 25 }).map((_, index) => ({
       descricao: `EMPREST BCO TESTE ${index + 1}`,

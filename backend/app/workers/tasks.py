@@ -9,6 +9,7 @@ import asyncio
 from datetime import datetime, timezone
 import hashlib
 from pathlib import Path
+import re
 from uuid import UUID
 
 from celery import Task
@@ -191,6 +192,25 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                     return ContractStatus.QUITADO.value
                 return ContractStatus.ATIVO.value
 
+            def normalize_rate_for_db(value: object) -> str | None:
+                if value is None:
+                    return None
+                raw = value
+                if isinstance(raw, dict):
+                    raw = raw.get("value")
+                if raw is None:
+                    return None
+                text = str(raw).strip()
+                if not text:
+                    return None
+                compact = text.replace(" ", "")
+                match = re.fullmatch(r"(\d{1,2},\d{1,2})%?", compact)
+                if match:
+                    text = f"{match.group(1)}%"
+                if len(text) > 20:
+                    return text[:20]
+                return text
+
             for i, file in enumerate(files):
                 # Step 1: PDF Extraction (arquivo real)
                 if file.storage_provider != "local" or not file.storage_url:
@@ -365,7 +385,7 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                                         status=infer_contract_status(
                                             loan_result.alerts, loan_result.status
                                         ),
-                                        taxa_juros=loan_result.taxa_juros,
+                                        taxa_juros=normalize_rate_for_db(loan_result.taxa_juros),
                                         cet_mensal=loan_result.cet_mensal,
                                         cet_anual=loan_result.cet_anual,
                                         iof_cent=loan_result.iof_cent,
@@ -537,7 +557,7 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                                     status=infer_contract_status(
                                         loan_result.alerts, loan_result.status
                                     ),
-                                    taxa_juros=loan_result.taxa_juros,
+                                    taxa_juros=normalize_rate_for_db(loan_result.taxa_juros),
                                     cet_mensal=loan_result.cet_mensal,
                                     cet_anual=loan_result.cet_anual,
                                     iof_cent=loan_result.iof_cent,

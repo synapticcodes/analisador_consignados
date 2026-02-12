@@ -1800,19 +1800,132 @@ class LoanExtractor:
         dd, mm, yyyy = match.groups()
         return f"{yyyy}-{mm}-{dd}"
 
-    def extract_inss_historical_contracts(self, text: str) -> list[dict[str, object]]:
-        """
-        Extrai contratos da seção de encerrados/excluídos do extrato INSS.
-        """
-        section = re.search(
-            r"CONTRATOS\s+EXCLU[ÍI]DOS\s+E\s+ENCERRADOS(.*?)(?:CART[ÃA]O\s+DE\s+CR[ÉE]DITO|\Z)",
-            text,
-            flags=re.IGNORECASE | re.DOTALL,
-        )
-        if not section:
+    def _parse_competencia_mm_yyyy(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        match = re.match(r"(\d{2})/(\d{4})", value.strip())
+        if not match:
+            return None
+        mm, yyyy = match.groups()
+        return f"{yyyy}-{mm}-01"
+
+    def _normalize_contract_identifier(self, raw_value: str | None) -> str | None:
+        if not raw_value:
+            return None
+        value = re.sub(r"\s+", "", raw_value)
+        # Alguns layouts trazem uma data (ex.: 08/10/25) colada antes do contrato.
+        value = re.sub(r"^\d{2}/\d{2}/(?:19|20)\d{2}", "", value)
+        value = re.sub(r"^\d{2}/\d{2}/\d{2}", "", value)
+        if len(value) < 6:
+            return None
+        if re.fullmatch(r"\d{6,}", value):
+            return value
+        digit_chunks = re.findall(r"\d{6,}", value)
+        if digit_chunks:
+            return digit_chunks[-1]
+        return value
+
+    def _extract_inss_history_from_section(
+        self, section_text: str, is_active_section: bool
+    ) -> list[dict[str, object]]:
+        if not section_text:
             return []
 
-        lines = [ln.strip() for ln in section.group(1).splitlines() if ln.strip()]
+        # Corrige quebras comuns geradas por extração OCR/PDF para facilitar regex tabular.
+        normalized = section_text
+        normalized = re.sub(r"(\d{2}/\d{2}/\d)\s+(\d)", r"\1\2", normalized)
+        normalized = re.sub(
+            r"(R\$\s*[\d\.]+,\d{2})(?=[A-Za-zÀ-ÿ])", r"\1 ", normalized
+        )
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+
+        row_pattern = re.compile(
+            r"(?:^|\s)(?P<contract>(?:\d[\d/\-\s]{4,40}?\d))\s+"
+            r"(?P<bank_code>\d{3})\s*-\s*(?P<bank>.+?)\s+"
+            r"(?P<inicio>\d{2}/\d{4})\s+(?P<fim>\d{2}/\d{4})\s+"
+            r"(?P<parcelas>\d{1,3})\s+R\$\s*(?P<parcela>[\d\.]+,\d{2})",
+            flags=re.IGNORECASE,
+        )
+
+        matches = list(row_pattern.finditer(normalized))
+        if not matches:
+            return []
+
+        items: list[dict[str, object]] = []
+        for index, match in enumerate(matches):
+            next_start = (
+                matches[index + 1].start() if index + 1 < len(matches) else len(normalized)
+            )
+            tail = normalized[match.end() : next_start]
+            tail_norm = self._normalize_for_match(tail)
+
+            contract_id = self._normalize_contract_identifier(match.group("contract"))
+            if not contract_id or len(contract_id) > 36:
+                continue
+            lender_name = re.sub(r"\s+", " ", match.group("bank") or "").strip()
+            lender_name = re.sub(r"\s{2,}", " ", lender_name)
+            lender_name = lender_name.strip("- ")
+            lender_norm = self._normalize_for_match(lender_name)
+            if (
+                "R$" in lender_name
+                or re.search(r"\d{2}/\d{4}", lender_name)
+                or lender_norm in {"BANCO", "CETELEM", "ITAU", "BRADESCO"}
+            ):
+                continue
+            if not lender_name:
+                lender_name = None
+
+            data_contratacao = self._parse_competencia_mm_yyyy(match.group("inicio"))
+            data_quitacao = self._parse_competencia_mm_yyyy(match.group("fim"))
+            parcela_cent = self._parse_brl_to_cent(match.group("parcela"))
+
+            valor_emprestado_cent = None
+            trailing_currency = re.findall(
+                r"R\$\s*([\d\.]+,\d{2})",
+                normalized[match.end() : min(next_start, match.end() + 120)],
+                flags=re.IGNORECASE,
+            )
+            if trailing_currency:
+                valor_emprestado_cent = self._parse_brl_to_cent(trailing_currency[0])
+
+            motivo = None
+            if "REFINANC" in tail_norm:
+                motivo = "Exclusão por refinanciamento"
+            elif "TROCA DE TITULAR" in tail_norm:
+                motivo = "Exclusão por troca de titularidade"
+            elif "MIGRADO" in tail_norm:
+                motivo = "Migrado de contrato"
+            elif "EXCLUI" in tail_norm:
+                motivo = "Excluído"
+            elif "ENCERR" in tail_norm:
+                motivo = "Encerrado"
+
+            if is_active_section:
+                motivo = (
+                    "ATIVO (Averbação por refinanciamento)"
+                    if "REFINANC" in tail_norm
+                    else "ATIVO"
+                )
+
+            if not any([contract_id, lender_name, data_contratacao]):
+                continue
+
+            items.append(
+                {
+                    "lender_name": lender_name,
+                    "contract_id": contract_id or None,
+                    "data_contratacao": data_contratacao,
+                    "data_quitacao": data_quitacao,
+                    "parcela_cent": parcela_cent,
+                    "valor_emprestado_cent": valor_emprestado_cent,
+                    "motivo_encerramento": motivo,
+                }
+            )
+
+        return items
+
+    def _extract_inss_historical_legacy(self, section_text: str) -> list[dict[str, object]]:
+        lines = [ln.strip() for ln in (section_text or "").splitlines() if ln.strip()]
         contracts: list[dict[str, object]] = []
         current: dict[str, object] = {}
 
@@ -1864,6 +1977,62 @@ class LoanExtractor:
 
         flush_current()
         return contracts
+
+    def extract_inss_historical_contracts(self, text: str) -> list[dict[str, object]]:
+        """
+        Extrai contratos da seção de encerrados/excluídos e ativos do extrato INSS.
+        """
+        excluded_section = re.search(
+            r"CONTRATOS\s+EXCLU[ÍI]DOS\s+E\s+ENCERRADOS(.*?)(?:CART[ÃA]O\s+DE\s+CR[ÉE]DITO|\Z)",
+            text,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        active_section = re.search(
+            r"CONTRATOS\s+ATIVOS\s+E\s+SUSPENSOS\*?(.*?)(?:\*Contratos\s+que\s+comprometem|CONTRATOS\s+EXCLU[ÍI]DOS\s+E\s+ENCERRADOS|\Z)",
+            text,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+
+        contracts = []
+        if excluded_section:
+            contracts.extend(
+                self._extract_inss_history_from_section(
+                    excluded_section.group(1), is_active_section=False
+                )
+            )
+        if active_section:
+            contracts.extend(
+                self._extract_inss_history_from_section(
+                    active_section.group(1), is_active_section=True
+                )
+            )
+
+        if not contracts:
+            if excluded_section:
+                return self._extract_inss_historical_legacy(excluded_section.group(1))
+            return []
+
+        deduped: list[dict[str, object]] = []
+        seen: set[tuple[str | None, str | None, str | None, str | None]] = set()
+        for item in contracts:
+            key = (
+                str(item.get("contract_id")) if item.get("contract_id") else None,
+                str(item.get("lender_name")) if item.get("lender_name") else None,
+                str(item.get("data_contratacao")) if item.get("data_contratacao") else None,
+                str(item.get("data_quitacao")) if item.get("data_quitacao") else None,
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+
+        deduped.sort(
+            key=lambda entry: (
+                str(entry.get("data_contratacao") or ""),
+                str(entry.get("data_quitacao") or ""),
+            )
+        )
+        return deduped
 
     def _fill_missing_contract_totals(
         self, text: str, contracts: list[LoanContractResult]

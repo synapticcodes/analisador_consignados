@@ -77,6 +77,43 @@ def test_extract_inss_historical_contracts_returns_list():
 
 
 @pytest.mark.unit
+def test_extract_inss_historical_contracts_parses_refinancing_chain_with_active():
+    extractor = LoanExtractor(llm_client=MockLLMClient())
+    text = """
+    EMPRÉSTIMOS BANCÁRIOS
+    CONTRATOS ATIVOS E SUSPENSOS*
+    153928 2128 121 - BANCO AGIBANK SA
+    10/2025 10/2026 12 R$530,30 R$5.593,83 Ativo Averbação por Refinanciamento
+    *Contratos que comprometem a margem consignável.
+
+    EMPRÉSTIMOS BANCÁRIOS
+    CONTRATOS EXCLUÍDOS E ENCERRADOS
+    153751 8772 121 - BANCO AGIBANK SA
+    09/2025 09/2025 12 R$530,30 R$5.647,30 Excluído Exclusão por refinanciamento.
+    152352 8551 121 - BANCO AGIBANK SA
+    02/2025 08/2025 12 R$530,30 R$5.659,07 Excluído Exclusão por refinanciamento.
+    """
+
+    items = extractor.extract_inss_historical_contracts(text)
+    assert len(items) == 3
+
+    ids = {item["contract_id"] for item in items}
+    assert "1539282128" in ids
+    assert "1537518772" in ids
+    assert "1523528551" in ids
+
+    active = next(item for item in items if item["contract_id"] == "1539282128")
+    assert active["data_contratacao"] == "2025-10-01"
+    assert active["data_quitacao"] == "2026-10-01"
+    assert active["motivo_encerramento"] == "ATIVO (Averbação por refinanciamento)"
+
+    previous = next(item for item in items if item["contract_id"] == "1537518772")
+    assert previous["data_contratacao"] == "2025-09-01"
+    assert previous["data_quitacao"] == "2025-09-01"
+    assert previous["motivo_encerramento"] == "Exclusão por refinanciamento"
+
+
+@pytest.mark.unit
 def test_extract_inss_margin_data_keeps_rmc_without_base():
     extractor = LoanExtractor(llm_client=MockLLMClient())
     text = """

@@ -10,7 +10,10 @@ import {
 } from '@/components/pdf-sections/debt-map-section'
 import { INSSMarginSection } from '@/components/pdf-sections/inss-margin-section'
 import { MethodologyFooter } from '@/components/pdf-sections/methodology-footer'
-import { TimelineSection } from '@/components/pdf-sections/timeline-section'
+import {
+  buildTimelineData,
+  TimelineSection,
+} from '@/components/pdf-sections/timeline-section'
 import { type FinalResultResponse } from '@/types/api'
 
 type ResultSnapshotProps = {
@@ -23,6 +26,7 @@ type ResultSnapshotProps = {
 }
 
 const DEBT_MAP_ROWS_PER_PAGE = 6
+const TIMELINE_EVENTS_PER_PAGE = 5
 
 function splitInChunks<T>(items: T[], size: number): T[][] {
   if (items.length === 0) return []
@@ -72,17 +76,24 @@ const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
       consignadoMensalCent: result.consignado_mensal_cent,
       totalDescontosCent: result.total_descontos_cent,
     })
+    const timelineData = buildTimelineData(result.historical_contracts ?? [])
 
     const hasContracts = (result.loan_contracts?.length ?? 0) > 0
     const hasConsignadoLines = (result.consignado_lines?.length ?? 0) > 0
     const hasMargin = result.inss_margin !== null && result.inss_margin !== undefined
-    const hasTimeline = enablePhase3 && (result.historical_contracts?.length ?? 0) > 0
+    const hasTimeline = enablePhase3 && timelineData.nodes.length > 0
     const hasDebtMap = enablePhase3 && debtMapData.rows.length > 0
     const hasCostBreakdown =
       enablePhase2 && (result.custo_juros_por_contrato?.length ?? 0) > 0
     const hasInsightsCore = hasMargin || hasCostBreakdown
     const debtMapChunks = hasDebtMap
       ? splitInChunks(debtMapData.rows, DEBT_MAP_ROWS_PER_PAGE)
+      : []
+    const timelineOffsets = hasTimeline
+      ? Array.from(
+          { length: Math.ceil(timelineData.nodes.length / TIMELINE_EVENTS_PER_PAGE) },
+          (_, index) => index * TIMELINE_EVENTS_PER_PAGE
+        )
       : []
 
     const pageDescriptors: Array<{ key: string; render: () => React.ReactNode }> = [
@@ -146,16 +157,23 @@ const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
           />
         ),
       })),
-      ...(hasTimeline
-        ? [
-            {
-              key: 'timeline',
-              render: () => (
-                <TimelineSection historicalContracts={result.historical_contracts ?? []} />
-              ),
-            },
-          ]
-        : []),
+      ...timelineOffsets.map((offset, timelineIndex) => ({
+        key: `timeline-${timelineIndex + 1}`,
+        render: () => (
+          <TimelineSection
+            historicalContracts={result.historical_contracts ?? []}
+            eventOffset={offset}
+            eventLimit={TIMELINE_EVENTS_PER_PAGE}
+            title={
+              timelineIndex === 0
+                ? 'Timeline de Refinanciamentos'
+                : 'Timeline de Refinanciamentos (continuação)'
+            }
+            showSummary={timelineIndex === 0}
+            showReasons={false}
+          />
+        ),
+      })),
       {
         key: 'p4',
         render: () => <MethodologyFooter whatsappText={whatsappCtaText} />,
