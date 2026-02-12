@@ -1399,6 +1399,18 @@ class LoanExtractor:
         match = pattern.search(text)
         return match.group(1) if match else None
 
+    def _normalize_rate_value(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+        candidate = str(value).strip()
+        if not candidate:
+            return None
+        compact = candidate.replace(" ", "")
+        match = re.fullmatch(r"(\d{1,2},\d{1,2})%?", compact)
+        if match:
+            return f"{match.group(1)}%"
+        return candidate
+
     def extract_inss_margin_data(self, text: str) -> dict[str, object] | None:
         """
         Extrai dados de margem do extrato INSS.
@@ -1675,45 +1687,95 @@ class LoanExtractor:
         by_id: dict[str, LoanContractResult] = {
             c.contract_id: c for c in primary if c.contract_id
         }
-        by_parcela: dict[float, LoanContractResult] = {}
+        by_parcela: dict[float, list[LoanContractResult]] = {}
         for c in primary:
-            if c.parcela_mensal.value is not None and c.valor_total.value is None:
-                by_parcela[round(float(c.parcela_mensal.value), 2)] = c
+            if c.parcela_mensal.value is None:
+                continue
+            lender_norm = self._normalize_for_match(c.lender_name or "")
+            if lender_norm.startswith("CARTAO"):
+                continue
+            key = round(float(c.parcela_mensal.value), 2)
+            by_parcela.setdefault(key, []).append(c)
         merged = list(primary)
+
+        def merge_into(base: LoanContractResult, fb: LoanContractResult) -> None:
+            original_id = base.contract_id
+            if (not base.contract_id) and fb.contract_id:
+                base.contract_id = fb.contract_id
+            elif base.contract_id and fb.contract_id:
+                if (
+                    base.contract_id != fb.contract_id
+                    and base.contract_id in fb.contract_id
+                    and len(fb.contract_id) > len(base.contract_id)
+                ):
+                    base.contract_id = fb.contract_id
+            if base.contract_id != original_id:
+                if original_id:
+                    by_id.pop(original_id, None)
+                if base.contract_id:
+                    by_id[base.contract_id] = base
+
+            if base.lender_name is None and fb.lender_name:
+                base.lender_name = fb.lender_name
+            if base.parcela_mensal.value is None and fb.parcela_mensal.value is not None:
+                base.parcela_mensal = fb.parcela_mensal
+            if base.valor_total.value is None and fb.valor_total.value is not None:
+                base.valor_total = fb.valor_total
+            if base.total_parcelas is None and fb.total_parcelas is not None:
+                base.total_parcelas = fb.total_parcelas
+            if base.parcelas_pagas is None and fb.parcelas_pagas is not None:
+                base.parcelas_pagas = fb.parcelas_pagas
+            if base.parcelas_restantes is None and fb.parcelas_restantes is not None:
+                base.parcelas_restantes = fb.parcelas_restantes
+            if base.taxa_juros is None and fb.taxa_juros is not None:
+                base.taxa_juros = fb.taxa_juros
+            if base.cet_mensal is None and fb.cet_mensal is not None:
+                base.cet_mensal = fb.cet_mensal
+            if base.cet_anual is None and fb.cet_anual is not None:
+                base.cet_anual = fb.cet_anual
+            if base.iof_cent is None and fb.iof_cent is not None:
+                base.iof_cent = fb.iof_cent
+            if (
+                base.valor_emprestado_cent is None
+                and fb.valor_emprestado_cent is not None
+            ):
+                base.valor_emprestado_cent = fb.valor_emprestado_cent
+            if base.status is None and fb.status is not None:
+                base.status = fb.status
+            if fb.alerts:
+                base.alerts.extend(fb.alerts)
 
         for fb in fallback:
             if fb.contract_id and fb.contract_id in by_id:
-                base = by_id[fb.contract_id]
-                if base.lender_name is None and fb.lender_name:
-                    base.lender_name = fb.lender_name
-                if base.parcela_mensal.value is None and fb.parcela_mensal.value is not None:
-                    base.parcela_mensal = fb.parcela_mensal
-                if base.valor_total.value is None and fb.valor_total.value is not None:
-                    base.valor_total = fb.valor_total
-                if base.total_parcelas is None and fb.total_parcelas is not None:
-                    base.total_parcelas = fb.total_parcelas
-                if base.parcelas_pagas is None and fb.parcelas_pagas is not None:
-                    base.parcelas_pagas = fb.parcelas_pagas
-                if base.parcelas_restantes is None and fb.parcelas_restantes is not None:
-                    base.parcelas_restantes = fb.parcelas_restantes
-                if fb.alerts:
-                    base.alerts.extend(fb.alerts)
+                merge_into(by_id[fb.contract_id], fb)
                 continue
 
             if fb.parcela_mensal.value is not None:
                 key = round(float(fb.parcela_mensal.value), 2)
-                target = by_parcela.get(key)
-                if target:
-                    if target.valor_total.value is None and fb.valor_total.value is not None:
-                        target.valor_total = fb.valor_total
-                        target.alerts.append(
-                            "Valor total preenchido por fallback regex (match por parcela)."
-                        )
-                    if target.total_parcelas is None and fb.total_parcelas is not None:
-                        target.total_parcelas = fb.total_parcelas
-                    if fb.alerts:
-                        target.alerts.extend(fb.alerts)
-                    continue
+                candidates = by_parcela.get(key, [])
+                if candidates:
+                    target = None
+                    if len(candidates) == 1:
+                        target = candidates[0]
+                    elif fb.lender_name:
+                        fb_lender = self._normalize_for_match(fb.lender_name)
+                        for candidate in candidates:
+                            candidate_lender = self._normalize_for_match(
+                                candidate.lender_name or ""
+                            )
+                            if fb_lender and candidate_lender and (
+                                fb_lender in candidate_lender
+                                or candidate_lender in fb_lender
+                            ):
+                                target = candidate
+                                break
+                    if target:
+                        merge_into(target, fb)
+                        if target.valor_total.value is None and fb.valor_total.value is not None:
+                            target.alerts.append(
+                                "Valor total preenchido por fallback regex (match por parcela)."
+                            )
+                        continue
 
             merged.append(fb)
 
@@ -1954,7 +2016,11 @@ class LoanExtractor:
             if not contract_id and digit_buffer:
                 current["contract_id"] = digit_buffer
             if bank_name_parts:
-                current["lender_name"] = " ".join(bank_name_parts)
+                lender_name = " ".join(bank_name_parts)
+                lender_name = re.sub(r"^\d{3}\s*-\s*", "", lender_name).strip()
+                lender_name = re.sub(r"\s+", " ", lender_name).strip()
+                if lender_name:
+                    current["lender_name"] = lender_name
 
             block_text = "\n".join(block_lines)
 
@@ -1995,6 +2061,39 @@ class LoanExtractor:
                 block_text,
                 re.IGNORECASE,
             )
+            normalized_block = re.sub(r"\s+", " ", block_text or "")
+
+            if current.get("total_parcelas") is None:
+                qtde_match = re.search(
+                    r"(?:\d{2}/\d{4}\s+){1,2}(\d{1,3})\s+R\$\s*[\d\.]+\s*,\s*\d{2}",
+                    normalized_block,
+                )
+                if qtde_match:
+                    current["total_parcelas"] = int(qtde_match.group(1))
+
+            if emprestado_val is None and len(currency_vals) > 1:
+                emprestado_val = currency_vals[1]
+
+            iof_cent = self._parse_brl_to_cent(iof_match.group(1)) if iof_match else None
+            if iof_cent is None and len(currency_vals) > 2:
+                iof_cent = int(round(currency_vals[2][0] * 100))
+
+            rate_candidates = re.findall(
+                r"(?<![\d\.])(\d{1,2},\d{2})(?!\d)", normalized_block
+            )
+            if iof_cent is not None and rate_candidates:
+                iof_token = f"{iof_cent / 100:.2f}".replace(".", ",")
+                if rate_candidates[0] == iof_token:
+                    rate_candidates = rate_candidates[1:]
+            if cet_mensal is None and len(rate_candidates) > 0:
+                cet_mensal = f"{rate_candidates[0]}%"
+            if cet_anual is None and len(rate_candidates) > 1:
+                cet_anual = f"{rate_candidates[1]}%"
+            taxa_juros = None
+            if len(rate_candidates) > 2:
+                taxa_juros = f"{rate_candidates[2]}%"
+
+            inss_tabular_signature = iof_cent is not None and len(rate_candidates) >= 3
 
             total_parcelas = current.get("total_parcelas")
             if (
@@ -2004,12 +2103,23 @@ class LoanExtractor:
                 and parcela_val is not None
                 and isinstance(total_parcelas, int)
                 and total_parcelas > 0
+                and not inss_tabular_signature
             ):
                 total_val = None
 
             alerts = ["Extração fallback por regex (LLM inválido ou sem JSON)."]
             if fallback_alert:
                 alerts.append(fallback_alert)
+            parcelas_restantes = current.get("parcelas_restantes")
+            if (
+                parcelas_restantes is None
+                and isinstance(total_parcelas, int)
+                and total_parcelas > 0
+            ):
+                parcelas_restantes = total_parcelas
+                alerts.append(
+                    "Parcelas restantes inferidas pelo fallback usando QTDE PARCELAS."
+                )
             if (
                 total_val is None
                 and parcela_val is not None
@@ -2040,14 +2150,16 @@ class LoanExtractor:
                     parcela_mensal=parcela_field,
                     total_parcelas=current.get("total_parcelas"),
                     parcelas_pagas=None,
-                    parcelas_restantes=None,
+                    parcelas_restantes=parcelas_restantes,
                     valor_total=total_field,
-                    taxa_juros=cet_mensal,
+                    taxa_juros=self._normalize_rate_value(
+                        current.get("taxa_juros") or taxa_juros or cet_mensal
+                    ),
                     alerts=alerts,
-                    status="ATIVO",
-                    cet_mensal=cet_mensal,
-                    cet_anual=cet_anual,
-                    iof_cent=self._parse_brl_to_cent(iof_match.group(1)) if iof_match else None,
+                    status=current.get("status") or "ATIVO",
+                    cet_mensal=self._normalize_rate_value(cet_mensal),
+                    cet_anual=self._normalize_rate_value(cet_anual),
+                    iof_cent=iof_cent,
                     valor_emprestado_cent=(
                         int(round(emprestado_val[0] * 100))
                         if emprestado_val
@@ -2072,9 +2184,17 @@ class LoanExtractor:
                 continue
             line_upper = line_clean.upper()
 
+            if (
+                current
+                and current.get("status")
+                and re.fullmatch(r"\d{5,}", line_clean)
+            ):
+                finalize_contract()
+
             bank_line = re.search(r"\b\d{3}\s*-\s*.+", line_clean)
-            if bank_line:
-                if current or digit_buffer:
+            bank_line_prefix = re.search(r"\b\d{3}\s*-\s*$", line_clean)
+            if bank_line or bank_line_prefix:
+                if current:
                     finalize_contract()
                 current = {"lender_name": None, "contract_id": None, "total_parcelas": None}
                 if digit_buffer:
@@ -2123,9 +2243,12 @@ class LoanExtractor:
                 block_lines.append(line_clean)
                 continue
 
-            if "ATIVO" in line_upper or "SUSPENS" in line_upper:
+            if (
+                ("ATIVO" in line_upper or "SUSPENS" in line_upper)
+                and (current or digit_buffer or bank_name_parts)
+            ):
+                current["status"] = "SUSPENSO" if "SUSPENS" in line_upper else "ATIVO"
                 block_lines.append(line_clean)
-                finalize_contract()
                 continue
 
             if current:
@@ -2258,6 +2381,22 @@ class LoanExtractor:
                     return int(match.group(0)) if match else None
                 return None
 
+            def parse_cent_field(raw_value) -> int | None:
+                if raw_value is None:
+                    return None
+                if isinstance(raw_value, dict):
+                    if raw_value.get("value") is not None:
+                        try:
+                            return int(round(float(raw_value.get("value")) * 100))
+                        except (TypeError, ValueError):
+                            return None
+                    raw_value = raw_value.get("cent")
+                if isinstance(raw_value, (int, float)):
+                    return int(round(float(raw_value)))
+                if isinstance(raw_value, str):
+                    return self._parse_brl_to_cent(raw_value)
+                return None
+
             contracts_payload: list[dict] = []
             root_alerts: list[str] = []
 
@@ -2282,20 +2421,30 @@ class LoanExtractor:
                     item_alerts.extend(root_alerts)
                 item_alerts.extend(item.get("alerts", []) or [])
 
+                total_parcelas = parse_int_field(item.get("totalParcelas"))
+                parcelas_pagas = parse_int_field(item.get("parcelasPagas"))
+                parcelas_restantes = parse_int_field(item.get("parcelasRestantes"))
+                if (
+                    parcelas_restantes is None
+                    and total_parcelas is not None
+                    and parcelas_pagas is None
+                ):
+                    parcelas_restantes = total_parcelas
+
                 results.append(
                     LoanContractResult(
                         lender_name=item.get("lenderName"),
                         contract_id=item.get("contractId"),
                         parcela_mensal=parse_field(item.get("parcelaMensal")),
-                        total_parcelas=parse_int_field(item.get("totalParcelas")),
-                        parcelas_pagas=parse_int_field(item.get("parcelasPagas")),
-                        parcelas_restantes=parse_int_field(item.get("parcelasRestantes")),
+                        total_parcelas=total_parcelas,
+                        parcelas_pagas=parcelas_pagas,
+                        parcelas_restantes=parcelas_restantes,
                         valor_total=parse_field(item.get("valorTotal")),
-                        taxa_juros=item.get("taxaJuros"),
+                        taxa_juros=self._normalize_rate_value(item.get("taxaJuros")),
                         alerts=item_alerts,
                         status=item.get("status"),
-                        cet_mensal=item.get("cetMensal"),
-                        cet_anual=item.get("cetAnual"),
+                        cet_mensal=self._normalize_rate_value(item.get("cetMensal")),
+                        cet_anual=self._normalize_rate_value(item.get("cetAnual")),
                         iof_cent=parse_cent_field(item.get("iof")),
                         valor_emprestado_cent=parse_cent_field(
                             item.get("valorEmprestado")
