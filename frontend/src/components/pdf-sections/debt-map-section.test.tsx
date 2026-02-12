@@ -113,4 +113,72 @@ describe('DebtMapSection', () => {
     expect(screen.getByText('Banco PAN')).toBeInTheDocument()
     expect(screen.getByText('Comprometimento do salário: 5,0%')).toBeInTheDocument()
   })
+
+  it('exibe reconciliação entre consignado identificado e total de descontos', () => {
+    render(
+      <DebtMapSection
+        contracts={[]}
+        consignadoLines={[
+          {
+            descricao: 'EMPREST BCO PRIVADOS - PAN',
+            rubrica: '086',
+            valor_cent: 464130,
+          },
+        ]}
+        salarioLiquidoCent={639688}
+        consignadoMensalCent={464130}
+        totalDescontosCent={866898}
+      />
+    )
+
+    expect(screen.getByText('Reconciliação dos descontos')).toBeInTheDocument()
+    expect(
+      screen.getByText('Consignado identificado (linhas do contracheque)')
+    ).toBeInTheDocument()
+    expect(screen.getByText('Outros descontos (não consignados)')).toBeInTheDocument()
+    expect(screen.getAllByText(/4\.641,30/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText(/4\.027,68/)).toBeInTheDocument()
+    expect(screen.getByText(/8\.668,98/)).toBeInTheDocument()
+  })
+
+  it('reconhece aliases de bancos do contracheque (BRB, INBURSA, PRB, SAF)', () => {
+    render(
+      <DebtMapSection
+        contracts={[]}
+        consignadoLines={[
+          { descricao: 'EMPREST BCO OFICIAL - BRB CFI', rubrica: '095', valor_cent: 10000 },
+          { descricao: 'EMPREST BCO PRIVADOS - INBURSA', rubrica: '090', valor_cent: 10000 },
+          { descricao: 'EMPREST BCO PRIVADOS - PRB', rubrica: '086', valor_cent: 10000 },
+          { descricao: 'EMPREST BCO PRIVADOS - BCO SAF', rubrica: '093', valor_cent: 10000 },
+        ]}
+        salarioLiquidoCent={200000}
+      />
+    )
+
+    expect(screen.getByText('Banco BRB')).toBeInTheDocument()
+    expect(screen.getByText('Banco INBURSA')).toBeInTheDocument()
+    expect(screen.getByText('Banco PRB')).toBeInTheDocument()
+    expect(screen.getByText('Banco Safra')).toBeInTheDocument()
+    expect(screen.queryByText('Contracheque (sem banco identificado)')).not.toBeInTheDocument()
+  })
+
+  it('não cria Banco EMP/Emp05 e reconhece PANAMERICANO corretamente', () => {
+    render(
+      <DebtMapSection
+        contracts={[]}
+        consignadoLines={[
+          { descricao: 'DIGIO - EMP 1', rubrica: '9068', valor_cent: 126866 },
+          { descricao: 'PANAMERICANO-EMP05', rubrica: '5933', valor_cent: 8696 },
+          { descricao: 'PANAMERICANO EMP02', rubrica: '5927', valor_cent: 3533 },
+          { descricao: 'BANCO PANAMERICANO', rubrica: '5754', valor_cent: 10048 },
+        ]}
+        salarioLiquidoCent={300000}
+      />
+    )
+
+    expect(screen.getByText('Banco Digio')).toBeInTheDocument()
+    expect(screen.getByText('Banco PANAMERICANO')).toBeInTheDocument()
+    expect(screen.queryByText('Banco EMP')).not.toBeInTheDocument()
+    expect(screen.queryByText('Banco Emp05')).not.toBeInTheDocument()
+  })
 })

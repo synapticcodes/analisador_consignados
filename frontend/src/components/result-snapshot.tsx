@@ -105,6 +105,8 @@ const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
                       contracts={result.loan_contracts ?? []}
                       consignadoLines={result.consignado_lines ?? []}
                       salarioLiquidoCent={result.salario_liquido_cent}
+                      totalDescontosCent={result.total_descontos_cent}
+                      consignadoMensalCent={result.consignado_mensal_cent}
                     />
                   )}
                   {hasTimeline && (

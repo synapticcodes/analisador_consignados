@@ -8,11 +8,71 @@ type DebtMapSectionProps = {
   contracts: LoanContractDetail[]
   consignadoLines: ConsignadoLineDetail[]
   salarioLiquidoCent?: number | null
+  totalDescontosCent?: number | null
+  consignadoMensalCent?: number | null
 }
 
 type GroupedDebt = {
   lender: string
   totalCent: number
+}
+
+const BANK_MATCHERS: Array<{ label: string; patterns: RegExp[] }> = [
+  { label: 'Banco BRB', patterns: [/\bBRB\b/, /\bBRB\s+CFI\b/] },
+  { label: 'Banco INBURSA', patterns: [/\bINBURSA\b/] },
+  { label: 'Banco PRB', patterns: [/\bPRB\b/] },
+  { label: 'Banco Safra', patterns: [/\bSAFRA\b/, /\bBCO\s+SAF\b/, /\bSAF\b/] },
+  { label: 'Banco PANAMERICANO', patterns: [/\bPANAMERICANO\b/] },
+  { label: 'Banco PAN', patterns: [/\bPAN\b/] },
+  { label: 'Banco SANTANDER', patterns: [/\bSANTANDER\b/] },
+  { label: 'Banco BMG', patterns: [/\bBMG\b/] },
+  { label: 'Banco BRADESCO', patterns: [/\bBRADESCO\b/] },
+  { label: 'Banco ITAU', patterns: [/\bITAU\b/] },
+  { label: 'Banco CAIXA', patterns: [/\bCAIXA\b/] },
+  { label: 'Banco C6', patterns: [/\bC6\b/] },
+  { label: 'Banco AGIBANK', patterns: [/\bAGIBANK\b/] },
+  { label: 'Banco DAYCOVAL', patterns: [/\bDAYCOVAL\b/] },
+  { label: 'Banco MERCANTIL', patterns: [/\bMERCANTIL\b/] },
+  { label: 'Banco BANRISUL', patterns: [/\bBANRISUL\b/] },
+  { label: 'Banco NUBANK', patterns: [/\bNUBANK\b/] },
+  { label: 'Banco BB', patterns: [/\bBB\b/, /\bBANCO\s+DO\s+BRASIL\b/] },
+]
+
+const GENERIC_TOKENS = new Set([
+  'BCO',
+  'BANCO',
+  'PRIVADO',
+  'PRIVADOS',
+  'OFICIAL',
+  'EMPREST',
+  'EMPRESTIMO',
+  'EMPR',
+  'DESCONTO',
+  'CONSIGNADO',
+  'SEM',
+  'CARTAO',
+  'CREDITO',
+  'AMORT',
+  'OLE',
+  'CFI',
+])
+
+function isGenericToken(token: string): boolean {
+  const upper = token.toUpperCase()
+  if (!upper) return true
+  if (GENERIC_TOKENS.has(upper)) return true
+  if (/^EMP\d*$/.test(upper)) return true
+  if (/^EMPR?\d*$/.test(upper)) return true
+  if (/^\d+$/.test(upper)) return true
+  return false
+}
+
+function normalizeDynamicBankLabel(token: string): string {
+  const upper = token.toUpperCase().replace(/[^A-Z0-9]/g, '')
+  if (!upper) return ''
+  if (upper === 'SAF') return 'Safra'
+  if (upper.length <= 4) return upper
+  return `${upper[0]}${upper.slice(1).toLowerCase()}`
 }
 
 function inferInstitution(line: ConsignadoLineDetail): string {
@@ -22,24 +82,31 @@ function inferInstitution(line: ConsignadoLineDetail): string {
     line.descricao?.trim() ||
     ''
   const source = `${descricao} ${line.rubrica ?? ''}`.toUpperCase()
-  const patterns = [
-    'BMG',
-    'PAN',
-    'BRADESCO',
-    'ITAU',
-    'SANTANDER',
-    'CAIXA',
-    'SAFRA',
-    'C6',
-    'AGIBANK',
-    'DAYCOVAL',
-    'MERCANTIL',
-    'BANRISUL',
-    'NUBANK',
-    'BB',
-  ]
-  const found = patterns.find((item) => source.includes(item))
-  return found ? `Banco ${found}` : 'Contracheque (sem banco identificado)'
+  for (const matcher of BANK_MATCHERS) {
+    if (matcher.patterns.some((pattern) => pattern.test(source))) {
+      return matcher.label
+    }
+  }
+
+  const bancoMatch = source.match(/\b(?:BCO|BANCO)\s+([A-Z0-9]{2,})\b/)
+  if (bancoMatch?.[1] && !isGenericToken(bancoMatch[1])) {
+    const normalized = normalizeDynamicBankLabel(bancoMatch[1])
+    if (normalized) {
+      return `Banco ${normalized}`
+    }
+  }
+
+  const dynamicTokens = Array.from(source.matchAll(/(?:^|[\s\-\/])([A-Z0-9]{2,})\b/g))
+    .map((match) => match[1])
+    .filter((token) => token && !isGenericToken(token))
+  if (dynamicTokens.length > 0) {
+    const normalized = normalizeDynamicBankLabel(dynamicTokens[0] ?? '')
+    if (normalized) {
+      return `Banco ${normalized}`
+    }
+  }
+
+  return 'Contracheque (sem banco identificado)'
 }
 
 function getRateColor(rate: number | null): string {
@@ -72,10 +139,16 @@ export function DebtMapSection({
   contracts,
   consignadoLines,
   salarioLiquidoCent = null,
+  totalDescontosCent = null,
+  consignadoMensalCent = null,
 }: DebtMapSectionProps) {
   if (contracts.length === 0 && consignadoLines.length === 0) return null
 
   const grouped = new Map<string, GroupedDebt>()
+  const consignadoFromLinesCent = consignadoLines.reduce((acc, item) => acc + item.valor_cent, 0)
+  const consignadoBaseCent = consignadoMensalCent ?? consignadoFromLinesCent
+  const outrosDescontosCent =
+    totalDescontosCent !== null ? totalDescontosCent - consignadoBaseCent : null
 
   for (const item of contracts) {
     const lender = item.lender_name || 'Banco não identificado'
@@ -101,25 +174,46 @@ export function DebtMapSection({
   return (
     <section className="space-y-3">
       <h3 className="text-xl font-semibold text-slate-900">Mapa de Dívidas por Banco</h3>
+      {totalDescontosCent !== null && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
+          <p className="mb-2 font-semibold text-slate-900">Reconciliação dos descontos</p>
+          <div className="grid gap-1 text-slate-700">
+            <div className="flex items-center justify-between">
+              <span>Consignado identificado (linhas do contracheque)</span>
+              <span className="font-semibold text-slate-900">{formatCurrency(consignadoBaseCent)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Outros descontos (não consignados)</span>
+              <span className="font-semibold text-slate-900">
+                {formatCurrency(outrosDescontosCent)}
+              </span>
+            </div>
+            <div className="mt-1 flex items-center justify-between border-t border-slate-200 pt-1">
+              <span className="font-semibold text-slate-900">Total de descontos</span>
+              <span className="font-semibold text-slate-900">{formatCurrency(totalDescontosCent)}</span>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="space-y-2">
         {rows.map((row) => {
           const commitment = getCommitmentLabel(row.totalCent, salarioLiquidoCent)
           return (
             <div key={row.lender} className="rounded-lg border border-slate-200 p-3 text-sm">
-            <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between">
                 <p className="font-medium text-slate-900">{row.lender}</p>
                 <p className="font-semibold text-slate-900">{formatCurrency(row.totalCent)}</p>
-            </div>
-            <div className="mt-2 h-2 rounded bg-slate-200">
-              <div
-                className="h-2 rounded bg-slate-700"
-                style={{ width: `${Math.max(5, Math.round((row.totalCent / max) * 100))}%` }}
-              />
-            </div>
+              </div>
+              <div className="mt-2 h-2 rounded bg-slate-200">
+                <div
+                  className="h-2 rounded bg-slate-700"
+                  style={{ width: `${Math.max(5, Math.round((row.totalCent / max) * 100))}%` }}
+                />
+              </div>
               <p className={`mt-2 text-xs font-medium ${getRateColor(commitment.percent)}`}>
                 {commitment.text}
               </p>
-          </div>
+            </div>
           )
         })}
       </div>
