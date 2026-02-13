@@ -73,6 +73,7 @@ export interface ConsignadoLineDetailApi {
   descricao_raw?: string | null
   descricao_canonica?: string | null
   rubrica: string | null
+  prazo?: number | null
   valor_cent: number
 }
 
@@ -222,6 +223,7 @@ export interface ConsignadoLineDetail {
   descricao_raw?: string | null
   descricao_canonica?: string | null
   rubrica: string | null
+  prazo?: number | null
   valor_cent: number
 }
 

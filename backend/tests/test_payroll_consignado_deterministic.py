@@ -84,3 +84,32 @@ LÍQUIDO
     assert result.salario_bruto.method == "EXTRACTED_FROM_BRUTO_SUMMARY"
     assert result.salario_liquido.method == "EXTRACTED_FROM_LIQUIDO_SUMMARY"
     assert result.total_descontos.method == "EXTRACTED_FROM_DESCONTOS_SUMMARY"
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_deterministic_consignado_lines_extracts_prazo_when_column_exists():
+    text = """
+FOLHA DE PAGAMENTO
+COMPETENCIA: 01/2026
+
+DESCONTOS
+RUBRICA PRAZO VALOR DESCRIÇÃO
+095
+769,55
+EMPREST BCO OFICIAL - BRB CFI
+086
+417,00
+EMPREST BCO PRIVADOS - PRB
+TOTAL DE DESCONTOS
+"""
+    extractor = PaymentExtractor(llm_client=StubLLMClient())
+    result = await extractor.extract(text=text, competencia="2026-01")
+
+    linha_095 = next((linha for linha in result.linhas_consignado if linha.rubrica == "095"), None)
+    linha_086 = next((linha for linha in result.linhas_consignado if linha.rubrica == "086"), None)
+
+    assert linha_095 is not None
+    assert linha_086 is not None
+    assert linha_095.prazo == 95
+    assert linha_086.prazo == 86

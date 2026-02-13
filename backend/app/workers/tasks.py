@@ -334,6 +334,7 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                                             or linha.descricao
                                         ),
                                         "rubrica": linha.rubrica,
+                                        "prazo": linha.prazo,
                                         "valor_cent": linha.valor_cent,
                                     }
                                     for linha in (payment_result.linhas_consignado or [])

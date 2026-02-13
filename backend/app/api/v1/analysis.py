@@ -449,6 +449,12 @@ async def get_job_result(
                             str(descricao_canonica) if descricao_canonica else None
                         ),
                         rubrica=line.get("rubrica"),
+                        prazo=(
+                            int(line.get("prazo"))
+                            if line.get("prazo") is not None
+                            and str(line.get("prazo")).isdigit()
+                            else None
+                        ),
                         valor_cent=int(valor_cent),
                     )
                 )

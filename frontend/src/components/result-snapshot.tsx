@@ -26,6 +26,7 @@ type ResultSnapshotProps = {
 }
 
 const DEBT_MAP_ROWS_PER_PAGE = 6
+const CONSIGNADO_LINES_PER_PAGE = 5
 const TIMELINE_EVENTS_PER_PAGE = 5
 
 function splitInChunks<T>(items: T[], size: number): T[][] {
@@ -89,6 +90,9 @@ const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
     const debtMapChunks = hasDebtMap
       ? splitInChunks(debtMapData.rows, DEBT_MAP_ROWS_PER_PAGE)
       : []
+    const consignadoChunks = hasConsignadoLines
+      ? splitInChunks(result.consignado_lines ?? [], CONSIGNADO_LINES_PER_PAGE)
+      : []
     const timelineOffsets = hasTimeline
       ? Array.from(
           { length: Math.ceil(timelineData.nodes.length / TIMELINE_EVENTS_PER_PAGE) },
@@ -111,14 +115,23 @@ const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
             },
           ]
         : []),
-      ...(hasConsignadoLines
-        ? [
-            {
-              key: 'consignado',
-              render: () => <ConsignadoBreakdown lines={result.consignado_lines ?? []} />,
-            },
-          ]
-        : []),
+      ...consignadoChunks.map((linesChunk, chunkIndex) => ({
+        key: `consignado-${chunkIndex + 1}`,
+        render: () => (
+          <ConsignadoBreakdown
+            lines={linesChunk}
+            title={
+              chunkIndex === 0
+                ? 'Linhas do Contracheque'
+                : 'Linhas do Contracheque (continuação)'
+            }
+            showTotal={chunkIndex === 0}
+            itemOffset={chunkIndex * CONSIGNADO_LINES_PER_PAGE}
+            showConsolidatedSummary={chunkIndex === consignadoChunks.length - 1}
+            summaryLines={result.consignado_lines ?? []}
+          />
+        ),
+      })),
       ...(hasInsightsCore
         ? [
             {

@@ -44,6 +44,7 @@ class ConsignadoLine:
     evidence: FieldEvidence
     descricao_raw: str | None = None
     descricao_canonica: str | None = None
+    prazo: int | None = None
 
 
 @dataclass
@@ -263,6 +264,7 @@ class PaymentExtractor:
     ) -> list[ConsignadoLine]:
         lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
         blocks: list[list[str]] = []
+        has_prazo_column = bool(re.search(r"\bPRAZO\b", self._normalize_for_match(text)))
 
         i = 0
         while i < len(lines):
@@ -286,6 +288,7 @@ class PaymentExtractor:
                 if re.fullmatch(r"\d{3}", line):
                     pending = {
                         "rubrica": line,
+                        "prazo": int(line) if has_prazo_column else None,
                         "value": None,
                         "value_line": None,
                         "desc": None,
@@ -324,6 +327,11 @@ class PaymentExtractor:
                                 descricao_raw=str(pending["desc"]),
                                 descricao_canonica=self._canonicalize_consignado_desc(
                                     str(pending["desc"])
+                                ),
+                                prazo=(
+                                    int(pending["prazo"])
+                                    if pending["prazo"] is not None
+                                    else None
                                 ),
                             )
                         )
@@ -479,6 +487,7 @@ class PaymentExtractor:
                 ),
                 line.valor_cent,
                 line.rubrica or "",
+                line.prazo if line.prazo is not None else -1,
             )
             for line in existing
         }
@@ -490,6 +499,7 @@ class PaymentExtractor:
                 ),
                 line.valor_cent,
                 line.rubrica or "",
+                line.prazo if line.prazo is not None else -1,
             )
             if key in existing_keys:
                 continue
@@ -891,6 +901,19 @@ class PaymentExtractor:
                 valor_cent = linha_dict.get("valorCent", 0)
                 if valor_cent is None:
                     valor_cent = 0
+                prazo = linha_dict.get("prazo")
+                if prazo is None:
+                    prazo = (
+                        linha_dict.get("prazoParcelas")
+                        or linha_dict.get("prazo_parcelas")
+                    )
+                prazo_int: int | None = None
+                if prazo is not None:
+                    prazo_match = re.search(r"\d+", str(prazo))
+                    if prazo_match:
+                        prazo_int = int(prazo_match.group(0))
+                        if prazo_int <= 0:
+                            prazo_int = None
 
                 linhas.append(
                     ConsignadoLine(
@@ -900,6 +923,7 @@ class PaymentExtractor:
                         evidence=evidence,
                         descricao_raw=descricao_raw,
                         descricao_canonica=descricao_canonica,
+                        prazo=prazo_int,
                     )
                 )
 

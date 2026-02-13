@@ -50,6 +50,7 @@ class ConsignadoLineDetail(BaseModel):
     descricao_raw: str | None = None
     descricao_canonica: str | None = None
     rubrica: str | None = None
+    prazo: int | None = None
     valor_cent: int
 
 

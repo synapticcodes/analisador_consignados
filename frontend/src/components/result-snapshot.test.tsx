@@ -301,14 +301,18 @@ describe('ResultSnapshot', () => {
           consignado_lines: lines,
         })}
         dateLabel="06/02/2026"
+        enablePhase3={false}
       />
     )
 
     const pages = screen.getAllByText(/Página \d de \d/)
-    expect(pages).toHaveLength(4)
+    expect(pages).toHaveLength(7)
+    expect(screen.getByText('Linhas do Contracheque')).toBeInTheDocument()
+    expect(screen.getAllByText('Linhas do Contracheque (continuação)').length).toBeGreaterThan(0)
     expect(screen.getByText('EMPREST BCO TESTE 1 · Rub 100')).toBeInTheDocument()
     expect(screen.getByText('EMPREST BCO TESTE 25 · Rub 124')).toBeInTheDocument()
     expect(screen.queryByText(/parte \d de \d/)).not.toBeInTheDocument()
-    expect(screen.getByText('Total consignados')).toBeInTheDocument()
+    expect(screen.getAllByText('Total consignados')).toHaveLength(1)
+    expect(screen.getAllByText('Resumo geral consolidado')).toHaveLength(1)
   })
 })
