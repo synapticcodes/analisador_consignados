@@ -1,46 +1,16 @@
-import { formatCurrency, type ConsignadoLineDetail } from '@/types/api'
+import { formatCurrency, type LoanContractDetail } from '@/types/api'
 
-type ConsignadoBreakdownProps = {
-  lines: ConsignadoLineDetail[]
+type ContractsProjectionBreakdownProps = {
+  contracts: LoanContractDetail[]
   title?: string
   showTotal?: boolean
   itemOffset?: number
   showConsolidatedSummary?: boolean
-  summaryLines?: ConsignadoLineDetail[]
+  summaryContracts?: LoanContractDetail[]
 }
 
 const REDUCED_PERCENT = 25
-
-function compactLineLabel(line: ConsignadoLineDetail, maxLength = 96): string {
-  const descricao =
-    line.descricao_raw?.trim() ||
-    line.descricao_canonica?.trim() ||
-    line.descricao?.trim() ||
-    'Sem descrição'
-  const base = `${descricao} · Rub ${line.rubrica ?? '--'}`
-  if (base.length <= maxLength) return base
-  return `${base.slice(0, Math.max(0, maxLength - 1))}…`
-}
-
-function parsePrazo(line: ConsignadoLineDetail): number | null {
-  if (typeof line.prazo === 'number' && Number.isFinite(line.prazo) && line.prazo > 0) {
-    return Math.floor(line.prazo)
-  }
-
-  if (line.rubrica) {
-    const trimmed = line.rubrica.trim()
-    if (/^\d{2,3}$/.test(trimmed)) {
-      const parsed = parseInt(trimmed, 10)
-      if (parsed > 0 && parsed <= 120) return parsed
-    }
-  }
-
-  return null
-}
-
-function computeReducedInstallment(parcelaCent: number): number {
-  return Math.floor((parcelaCent * REDUCED_PERCENT) / 100)
-}
+const MISSING_TEXT = 'não consta'
 
 type ConsolidatedSummary = {
   totalAtualFinalCent: number
@@ -49,30 +19,54 @@ type ConsolidatedSummary = {
   totalParcelasMensaisAtuaisCent: number
   totalParcelasMensaisReducaoCent: number
   economiaMensalParcelasCent: number
-  linhasSemPrazo: number
+  contratosSemParcela: number
+  contratosSemPrazo: number
 }
 
-function buildConsolidatedSummary(lines: ConsignadoLineDetail[]): ConsolidatedSummary {
+function compactContractLabel(contract: LoanContractDetail, maxLength = 96): string {
+  const banco = contract.lender_name?.trim() || 'Banco não identificado'
+  const contrato = contract.contract_id?.trim() || '--'
+  const base = `${banco} · Contrato ${contrato}`
+  if (base.length <= maxLength) return base
+  return `${base.slice(0, Math.max(0, maxLength - 1))}…`
+}
+
+function normalizeRemainingInstallments(value: number | null): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null
+  return Math.floor(value)
+}
+
+function computeReducedInstallment(parcelaCent: number): number {
+  return Math.floor((parcelaCent * REDUCED_PERCENT) / 100)
+}
+
+function buildConsolidatedSummary(contracts: LoanContractDetail[]): ConsolidatedSummary {
   let totalAtualFinalCent = 0
   let totalComReducaoFinalCent = 0
   let totalParcelasMensaisAtuaisCent = 0
   let totalParcelasMensaisReducaoCent = 0
-  let linhasSemPrazo = 0
+  let contratosSemParcela = 0
+  let contratosSemPrazo = 0
 
-  for (const line of lines) {
-    const parcelaAtualCent = line.valor_cent
-    const parcelaReducaoCent = computeReducedInstallment(parcelaAtualCent)
-    totalParcelasMensaisAtuaisCent += parcelaAtualCent
-    totalParcelasMensaisReducaoCent += parcelaReducaoCent
-
-    const prazo = parsePrazo(line)
-    if (!prazo) {
-      linhasSemPrazo += 1
+  for (const contract of contracts) {
+    const parcelaAtualCent = contract.parcela_cent
+    if (parcelaAtualCent === null || parcelaAtualCent === undefined) {
+      contratosSemParcela += 1
       continue
     }
 
-    totalAtualFinalCent += parcelaAtualCent * prazo
-    totalComReducaoFinalCent += parcelaReducaoCent * prazo
+    const novaParcelaCent = computeReducedInstallment(parcelaAtualCent)
+    totalParcelasMensaisAtuaisCent += parcelaAtualCent
+    totalParcelasMensaisReducaoCent += novaParcelaCent
+
+    const parcelasRestantes = normalizeRemainingInstallments(contract.parcelas_restantes)
+    if (!parcelasRestantes) {
+      contratosSemPrazo += 1
+      continue
+    }
+
+    totalAtualFinalCent += parcelaAtualCent * parcelasRestantes
+    totalComReducaoFinalCent += novaParcelaCent * parcelasRestantes
   }
 
   return {
@@ -83,7 +77,8 @@ function buildConsolidatedSummary(lines: ConsignadoLineDetail[]): ConsolidatedSu
     totalParcelasMensaisReducaoCent,
     economiaMensalParcelasCent:
       totalParcelasMensaisAtuaisCent - totalParcelasMensaisReducaoCent,
-    linhasSemPrazo,
+    contratosSemParcela,
+    contratosSemPrazo,
   }
 }
 
@@ -93,7 +88,7 @@ function ConsolidatedSummaryBlock({ consolidatedSummary }: { consolidatedSummary
       <h4 className="text-sm font-semibold text-slate-900">Resumo geral consolidado</h4>
       <div className="mt-2 space-y-1 text-xs text-slate-700">
         <p>
-          Valor total que o cliente pagaria ao final de todos os empréstimos mantendo os
+          Valor total que o cliente pagaria ao final de todos os contratos mantendo os
           contratos atuais:{' '}
           <span className="font-semibold text-red-700">
             {formatCurrency(consolidatedSummary.totalAtualFinalCent)}
@@ -130,55 +125,72 @@ function ConsolidatedSummaryBlock({ consolidatedSummary }: { consolidatedSummary
           </span>
         </p>
       </div>
-      {consolidatedSummary.linhasSemPrazo > 0 && (
+      {(consolidatedSummary.contratosSemParcela > 0 ||
+        consolidatedSummary.contratosSemPrazo > 0) && (
         <p className="mt-2 text-[11px] text-slate-500">
-          Linhas sem prazo identificado: {consolidatedSummary.linhasSemPrazo}. Totais finais
-          de contrato consideram apenas linhas com prazo.
+          Contratos sem parcela identificada: {consolidatedSummary.contratosSemParcela}. Contratos sem
+          parcelas restantes identificadas: {consolidatedSummary.contratosSemPrazo}. Totais finais
+          consideram apenas contratos com parcela e prazo.
         </p>
       )}
     </div>
   )
 }
 
-export function ConsignadoConsolidatedSummary({ lines }: { lines: ConsignadoLineDetail[] }) {
-  if (lines.length === 0) return null
-  const consolidatedSummary = buildConsolidatedSummary(lines)
+export function ContractsProjectionConsolidatedSummary({
+  contracts,
+}: {
+  contracts: LoanContractDetail[]
+}) {
+  if (contracts.length === 0) return null
+  const consolidatedSummary = buildConsolidatedSummary(contracts)
 
   return (
     <section className="space-y-2">
-      <h3 className="text-xl font-semibold text-slate-900">Linhas do Contracheque - Resumo</h3>
+      <h3 className="text-xl font-semibold text-slate-900">Projeção dos Contratos (Extrato) - Resumo</h3>
       <ConsolidatedSummaryBlock consolidatedSummary={consolidatedSummary} />
     </section>
   )
 }
 
-export function ConsignadoBreakdown({
-  lines,
-  title = 'Linhas do Contracheque',
+export function ContractsProjectionBreakdown({
+  contracts,
+  title = 'Projeção dos Contratos (Extrato)',
   showTotal = true,
   itemOffset = 0,
   showConsolidatedSummary = false,
-  summaryLines,
-}: ConsignadoBreakdownProps) {
-  if (lines.length === 0) return null
+  summaryContracts,
+}: ContractsProjectionBreakdownProps) {
+  if (contracts.length === 0) return null
 
-  const total = lines.reduce((acc, item) => acc + item.valor_cent, 0)
-  const consolidatedSummary = buildConsolidatedSummary(summaryLines ?? lines)
+  const totalMensal = contracts.reduce((acc, item) => acc + (item.parcela_cent ?? 0), 0)
+  const consolidatedSummary = buildConsolidatedSummary(summaryContracts ?? contracts)
 
   return (
     <section className="space-y-2">
       <h3 className="text-xl font-semibold text-slate-900">{title}</h3>
       <p className="text-xs text-slate-600">
-        Simulação por linha considerando redução de 75% na parcela mensal.
+        Simulação por contrato considerando redução de 75% na parcela mensal.
       </p>
 
       <div className="space-y-2">
-        {lines.map((line, index) => {
-          const parcelaAtualCent = line.valor_cent
-          const prazo = parsePrazo(line)
-          const novaParcelaCent = computeReducedInstallment(parcelaAtualCent)
-          const valorTotalAtualCent = prazo ? parcelaAtualCent * prazo : null
-          const valorTotalReduzidoCent = prazo ? novaParcelaCent * prazo : null
+        {contracts.map((contract, index) => {
+          const parcelaAtualCent = contract.parcela_cent
+          const parcelasRestantes = normalizeRemainingInstallments(contract.parcelas_restantes)
+          const novaParcelaCent =
+            parcelaAtualCent !== null && parcelaAtualCent !== undefined
+              ? computeReducedInstallment(parcelaAtualCent)
+              : null
+          const valorTotalAtualCent =
+            parcelaAtualCent !== null &&
+            parcelaAtualCent !== undefined &&
+            parcelasRestantes !== null
+              ? parcelaAtualCent * parcelasRestantes
+              : null
+          const valorTotalReduzidoCent =
+            novaParcelaCent !== null && parcelasRestantes !== null
+              ? novaParcelaCent * parcelasRestantes
+              : null
           const valorEconomiaTotalCent =
             valorTotalAtualCent !== null && valorTotalReduzidoCent !== null
               ? valorTotalAtualCent - valorTotalReduzidoCent
@@ -187,48 +199,58 @@ export function ConsignadoBreakdown({
 
           return (
             <div
-              key={`${line.descricao_raw ?? line.descricao_canonica ?? line.descricao}-${index}`}
+              key={contract.id}
               className="rounded-lg border border-slate-200 bg-slate-50 p-2"
             >
               <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold text-slate-900">Empréstimo {displayIndex}</p>
+                <p className="text-sm font-semibold text-slate-900">Contrato {displayIndex}</p>
                 <p className="rounded-md bg-red-50 px-2 py-0.5 text-sm font-bold text-red-700">
-                  {formatCurrency(parcelaAtualCent)}
+                  {parcelaAtualCent !== null && parcelaAtualCent !== undefined
+                    ? formatCurrency(parcelaAtualCent)
+                    : MISSING_TEXT}
                 </p>
               </div>
               <p className="mt-1 truncate text-xs leading-tight text-slate-600">
-                {compactLineLabel(line)}
+                {compactContractLabel(contract)}
               </p>
 
               <div className="mt-1 grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] leading-tight text-slate-700">
                 <div className="rounded-md border border-red-200 bg-red-50 px-2 py-1">
                   <p className="font-semibold text-slate-900">Parcela atual:</p>
-                  <p className="font-bold text-red-700">{formatCurrency(parcelaAtualCent)}</p>
+                  <p className="font-bold text-red-700">
+                    {parcelaAtualCent !== null && parcelaAtualCent !== undefined
+                      ? formatCurrency(parcelaAtualCent)
+                      : MISSING_TEXT}
+                  </p>
                 </div>
                 <div className="rounded-md border border-slate-200 bg-white px-2 py-1">
-                  <p className="font-semibold text-slate-900">Quantidade estimada de parcelas:</p>
-                  <p className="font-semibold text-slate-800">{prazo ?? 'não consta'}</p>
+                  <p className="font-semibold text-slate-900">Quantidade de parcelas restantes:</p>
+                  <p className="font-semibold text-slate-800">
+                    {parcelasRestantes ?? MISSING_TEXT}
+                  </p>
                 </div>
                 <div className="rounded-md border border-red-200 bg-red-50 px-2 py-1">
                   <p className="font-semibold text-slate-900">Valor total mantendo o contrato atual:</p>
                   <p className="font-bold text-red-700">
-                    {valorTotalAtualCent !== null ? formatCurrency(valorTotalAtualCent) : 'não consta'}
+                    {valorTotalAtualCent !== null ? formatCurrency(valorTotalAtualCent) : MISSING_TEXT}
                   </p>
                 </div>
                 <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1">
                   <p className="font-semibold text-slate-900">Nova parcela com nossos serviços:</p>
-                  <p className="font-bold text-emerald-700">{formatCurrency(novaParcelaCent)}</p>
+                  <p className="font-bold text-emerald-700">
+                    {novaParcelaCent !== null ? formatCurrency(novaParcelaCent) : MISSING_TEXT}
+                  </p>
                 </div>
                 <div className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1">
                   <p className="font-semibold text-slate-900">Valor total com a redução:</p>
                   <p className="font-bold text-emerald-700">
-                    {valorTotalReduzidoCent !== null ? formatCurrency(valorTotalReduzidoCent) : 'não consta'}
+                    {valorTotalReduzidoCent !== null ? formatCurrency(valorTotalReduzidoCent) : MISSING_TEXT}
                   </p>
                 </div>
                 <div className="rounded-md border border-emerald-300 bg-emerald-100 px-2 py-1">
-                  <p className="font-semibold text-slate-900">Valor total reduzido neste empréstimo:</p>
+                  <p className="font-semibold text-slate-900">Valor total reduzido neste contrato:</p>
                   <p className="font-extrabold text-emerald-800">
-                    {valorEconomiaTotalCent !== null ? formatCurrency(valorEconomiaTotalCent) : 'não consta'}
+                    {valorEconomiaTotalCent !== null ? formatCurrency(valorEconomiaTotalCent) : MISSING_TEXT}
                   </p>
                 </div>
               </div>
@@ -239,8 +261,8 @@ export function ConsignadoBreakdown({
 
       {showTotal && (
         <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900">
-          <p>Total consignados</p>
-          <p>{formatCurrency(total)}</p>
+          <p>Total mensal dos contratos</p>
+          <p>{formatCurrency(totalMensal)}</p>
         </div>
       )}
 

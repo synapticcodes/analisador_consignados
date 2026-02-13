@@ -40,7 +40,7 @@ describe('DebtMapSection', () => {
     expect(screen.getByText('Comprometimento do salário: 4,0%')).toBeInTheDocument()
   })
 
-  it('mostra comprometimento N/D quando salário líquido não está disponível', () => {
+  it('mostra comprometimento N/D quando salário/benefício não estão disponíveis', () => {
     render(
       <DebtMapSection
         contracts={[
@@ -64,7 +64,7 @@ describe('DebtMapSection', () => {
     )
 
     expect(screen.getByText('Banco Estimado')).toBeInTheDocument()
-    expect(screen.getByText('Comprometimento do salário: N/D')).toBeInTheDocument()
+    expect(screen.getByText('Comprometimento do benefício: N/D')).toBeInTheDocument()
   })
 
   it('calcula comprometimento para banco sem taxa quando há salário líquido', () => {
@@ -112,6 +112,38 @@ describe('DebtMapSection', () => {
 
     expect(screen.getByText('Banco PAN')).toBeInTheDocument()
     expect(screen.getByText('Comprometimento do salário: 5,0%')).toBeInTheDocument()
+  })
+
+  it('usa benefício bruto no extrato quando salário não se aplica', () => {
+    render(
+      <DebtMapSection
+        contracts={[
+          {
+            id: 'c4',
+            lender_name: 'Banco BMG',
+            contract_id: '4',
+            parcela_cent: 20000,
+            parcelas_restantes: 12,
+            valor_total_cent: null,
+            taxa_juros: null,
+            status: 'ATIVO',
+            cet_mensal: null,
+            cet_anual: null,
+            iof_cent: null,
+            valor_emprestado_cent: null,
+          },
+        ]}
+        consignadoLines={[]}
+        salarioLiquidoCent={0}
+        beneficioBrutoCent={151800}
+        consignadoMensalCent={83490}
+      />
+    )
+
+    expect(screen.getByText('Comprometimento do benefício: 13,2%')).toBeInTheDocument()
+    expect(
+      screen.getByText('Participação no consignado identificado: 24,0%')
+    ).toBeInTheDocument()
   })
 
   it('exibe reconciliação entre consignado identificado e total de descontos', () => {

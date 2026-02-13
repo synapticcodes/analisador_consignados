@@ -8,6 +8,7 @@ type DebtMapSectionProps = {
   contracts: LoanContractDetail[]
   consignadoLines: ConsignadoLineDetail[]
   salarioLiquidoCent?: number | null
+  beneficioBrutoCent?: number | null
   totalDescontosCent?: number | null
   consignadoMensalCent?: number | null
   rowOffset?: number
@@ -131,19 +132,48 @@ function getRateColor(rate: number | null): string {
 
 function getCommitmentLabel(
   totalCent: number,
-  salarioLiquidoCent: number | null | undefined
+  salarioLiquidoCent: number | null | undefined,
+  beneficioBrutoCent: number | null | undefined
 ): { text: string; percent: number | null } {
-  if (!salarioLiquidoCent || salarioLiquidoCent <= 0) {
+  if (salarioLiquidoCent && salarioLiquidoCent > 0) {
+    const percent = (totalCent / salarioLiquidoCent) * 100
+    const formatted = percent.toFixed(1).replace('.', ',')
     return {
-      text: 'Comprometimento do salário: N/D',
+      text: `Comprometimento do salário: ${formatted}%`,
+      percent,
+    }
+  }
+
+  if (beneficioBrutoCent && beneficioBrutoCent > 0) {
+    const percent = (totalCent / beneficioBrutoCent) * 100
+    const formatted = percent.toFixed(1).replace('.', ',')
+    return {
+      text: `Comprometimento do benefício: ${formatted}%`,
+      percent,
+    }
+  }
+
+  return {
+    text: 'Comprometimento do benefício: N/D',
+    percent: null,
+  }
+}
+
+function getConsignadoShareLabel(
+  totalCent: number,
+  consignadoBaseCent: number
+): { text: string; percent: number | null } {
+  if (!consignadoBaseCent || consignadoBaseCent <= 0) {
+    return {
+      text: 'Participação no consignado identificado: N/D',
       percent: null,
     }
   }
 
-  const percent = (totalCent / salarioLiquidoCent) * 100
+  const percent = (totalCent / consignadoBaseCent) * 100
   const formatted = percent.toFixed(1).replace('.', ',')
   return {
-    text: `Comprometimento do salário: ${formatted}%`,
+    text: `Participação no consignado identificado: ${formatted}%`,
     percent,
   }
 }
@@ -201,6 +231,7 @@ export function DebtMapSection({
   contracts,
   consignadoLines,
   salarioLiquidoCent = null,
+  beneficioBrutoCent = null,
   totalDescontosCent = null,
   consignadoMensalCent = null,
   rowOffset = 0,
@@ -253,7 +284,12 @@ export function DebtMapSection({
       )}
       <div className="space-y-2">
         {visibleRows.map((row) => {
-          const commitment = getCommitmentLabel(row.totalCent, salarioLiquidoCent)
+          const commitment = getCommitmentLabel(
+            row.totalCent,
+            salarioLiquidoCent,
+            beneficioBrutoCent
+          )
+          const consignadoShare = getConsignadoShareLabel(row.totalCent, data.consignadoBaseCent)
           return (
             <div key={row.lender} className="rounded-lg border border-slate-200 p-3 text-sm">
               <div className="flex items-center justify-between">
@@ -273,6 +309,9 @@ export function DebtMapSection({
               </div>
               <p className={`mt-2 text-xs font-medium ${getRateColor(commitment.percent)}`}>
                 {commitment.text}
+              </p>
+              <p className={`mt-1 text-xs font-medium ${getRateColor(consignadoShare.percent)}`}>
+                {consignadoShare.text}
               </p>
             </div>
           )

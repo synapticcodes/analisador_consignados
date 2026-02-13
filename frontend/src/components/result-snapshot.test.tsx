@@ -349,7 +349,7 @@ describe('ResultSnapshot', () => {
     )
 
     const pages = screen.getAllByText(/Página \d de \d/)
-    expect(pages).toHaveLength(7)
+    expect(pages).toHaveLength(8)
     expect(screen.getByText('Linhas do Contracheque')).toBeInTheDocument()
     expect(screen.getAllByText('Linhas do Contracheque (continuação)').length).toBeGreaterThan(0)
     expect(screen.getByText('EMPREST BCO TESTE 1 · Rub 100')).toBeInTheDocument()
@@ -357,5 +357,104 @@ describe('ResultSnapshot', () => {
     expect(screen.queryByText(/parte \d de \d/)).not.toBeInTheDocument()
     expect(screen.getAllByText('Total consignados')).toHaveLength(1)
     expect(screen.getAllByText('Resumo geral consolidado')).toHaveLength(1)
+  })
+
+  it('renderiza projeção de contratos do extrato quando não há linhas do contracheque', () => {
+    const contracts = Array.from({ length: 6 }).map((_, index) => ({
+      id: `e-${index}`,
+      lender_name: `Banco Extrato ${index + 1}`,
+      contract_id: `${200 + index}`,
+      parcela_cent: 10000 + index * 1000,
+      parcelas_restantes: 12,
+      valor_total_cent: 0,
+      taxa_juros: null,
+      status: 'ATIVO',
+      cet_mensal: null,
+      cet_anual: null,
+      iof_cent: null,
+      valor_emprestado_cent: null,
+    }))
+
+    render(
+      <ResultSnapshot
+        result={buildResult({
+          loan_contracts: contracts,
+          consignado_lines: [],
+        })}
+        dateLabel="06/02/2026"
+        enablePhase3={false}
+      />
+    )
+
+    expect(screen.getByText('Projeção dos Contratos (Extrato)')).toBeInTheDocument()
+    expect(
+      screen.getByText('Projeção dos Contratos (Extrato) (continuação)')
+    ).toBeInTheDocument()
+    expect(screen.getAllByText('Total mensal dos contratos')).toHaveLength(1)
+    expect(screen.getAllByText('Resumo geral consolidado')).toHaveLength(1)
+    expect(screen.queryByText('Linhas do Contracheque')).not.toBeInTheDocument()
+  })
+
+  it('não inclui contratos de cartão RMC/RCC na projeção de contratos do extrato', () => {
+    const contracts = [
+      ...Array.from({ length: 4 }).map((_, index) => ({
+        id: `n-${index}`,
+        lender_name: `Banco Extrato ${index + 1}`,
+        contract_id: `${300 + index}`,
+        parcela_cent: 10000 + index * 1000,
+        parcelas_restantes: 12,
+        valor_total_cent: 0,
+        taxa_juros: null,
+        status: 'ATIVO',
+        cet_mensal: null,
+        cet_anual: null,
+        iof_cent: null,
+        valor_emprestado_cent: null,
+      })),
+      {
+        id: 'rmc-1',
+        lender_name: 'Cartão RMC',
+        contract_id: 'RMC-999',
+        parcela_cent: 9000,
+        parcelas_restantes: 12,
+        valor_total_cent: 0,
+        taxa_juros: null,
+        status: 'ATIVO',
+        cet_mensal: null,
+        cet_anual: null,
+        iof_cent: null,
+        valor_emprestado_cent: null,
+      },
+      {
+        id: 'rcc-1',
+        lender_name: 'Cartão RCC',
+        contract_id: 'RCC-888',
+        parcela_cent: 7000,
+        parcelas_restantes: 10,
+        valor_total_cent: 0,
+        taxa_juros: null,
+        status: 'ATIVO',
+        cet_mensal: null,
+        cet_anual: null,
+        iof_cent: null,
+        valor_emprestado_cent: null,
+      },
+    ]
+
+    render(
+      <ResultSnapshot
+        result={buildResult({
+          loan_contracts: contracts,
+          consignado_lines: [],
+        })}
+        dateLabel="06/02/2026"
+        enablePhase3={false}
+      />
+    )
+
+    expect(screen.getByText('Projeção dos Contratos (Extrato)')).toBeInTheDocument()
+    expect(
+      screen.queryByText('Projeção dos Contratos (Extrato) (continuação)')
+    ).not.toBeInTheDocument()
   })
 })

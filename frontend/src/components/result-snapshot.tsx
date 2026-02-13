@@ -2,6 +2,10 @@ import { forwardRef } from 'react'
 
 import { ConsignadoBreakdown } from '@/components/pdf-sections/consignado-breakdown'
 import { CostBreakdownSection } from '@/components/pdf-sections/cost-breakdown-section'
+import {
+  ContractsProjectionBreakdown,
+  ContractsProjectionConsolidatedSummary,
+} from '@/components/pdf-sections/contracts-projection-breakdown'
 import { ContractsTable } from '@/components/pdf-sections/contracts-table'
 import { CoverSummary } from '@/components/pdf-sections/cover-summary'
 import {
@@ -10,6 +14,7 @@ import {
 } from '@/components/pdf-sections/debt-map-section'
 import { INSSMarginSection } from '@/components/pdf-sections/inss-margin-section'
 import { MethodologyFooter } from '@/components/pdf-sections/methodology-footer'
+import { ConsignadoConsolidatedSummary } from '@/components/pdf-sections/consignado-breakdown'
 import {
   buildTimelineData,
   TimelineSection,
@@ -27,6 +32,7 @@ type ResultSnapshotProps = {
 
 const DEBT_MAP_ROWS_PER_PAGE = 6
 const CONSIGNADO_LINES_PER_PAGE = 5
+const EXTRATO_CONTRACTS_PER_PAGE = 4
 const TIMELINE_EVENTS_PER_PAGE = 5
 
 function splitInChunks<T>(items: T[], size: number): T[][] {
@@ -37,6 +43,20 @@ function splitInChunks<T>(items: T[], size: number): T[][] {
     chunks.push(items.slice(index, index + size))
   }
   return chunks
+}
+
+function normalizeTokenSource(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+}
+
+function isMarginCardContract(contract: { lender_name: string | null; contract_id: string | null }): boolean {
+  const source = normalizeTokenSource(
+    `${contract.lender_name ?? ''} ${contract.contract_id ?? ''}`.trim()
+  )
+  return /\bRMC\b/.test(source) || /\bRCC\b/.test(source)
 }
 
 function PageWrapper({
@@ -81,6 +101,12 @@ const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
 
     const hasContracts = (result.loan_contracts?.length ?? 0) > 0
     const hasConsignadoLines = (result.consignado_lines?.length ?? 0) > 0
+    const extratoContracts =
+      result.loan_contracts?.filter((contract) => {
+        const status = contract.status?.toUpperCase() ?? ''
+        return status !== 'QUITADO' && status !== 'ENCERRADO' && !isMarginCardContract(contract)
+      }) ?? []
+    const hasExtratoProjection = !hasConsignadoLines && extratoContracts.length > 0
     const hasMargin = result.inss_margin !== null && result.inss_margin !== undefined
     const hasTimeline = enablePhase3 && timelineData.nodes.length > 0
     const hasDebtMap = enablePhase3 && debtMapData.rows.length > 0
@@ -92,6 +118,9 @@ const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
       : []
     const consignadoChunks = hasConsignadoLines
       ? splitInChunks(result.consignado_lines ?? [], CONSIGNADO_LINES_PER_PAGE)
+      : []
+    const extratoProjectionChunks = hasExtratoProjection
+      ? splitInChunks(extratoContracts, EXTRATO_CONTRACTS_PER_PAGE)
       : []
     const timelineOffsets = hasTimeline
       ? Array.from(
@@ -127,11 +156,50 @@ const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
             }
             showTotal={chunkIndex === 0}
             itemOffset={chunkIndex * CONSIGNADO_LINES_PER_PAGE}
-            showConsolidatedSummary={chunkIndex === consignadoChunks.length - 1}
-            summaryLines={result.consignado_lines ?? []}
+            showConsolidatedSummary={false}
           />
         ),
       })),
+      ...(hasConsignadoLines
+        ? [
+            {
+              key: 'consignado-summary',
+              render: () => (
+                <ConsignadoConsolidatedSummary
+                  lines={result.consignado_lines ?? []}
+                />
+              ),
+            },
+          ]
+        : []),
+      ...extratoProjectionChunks.map((contractsChunk, chunkIndex) => ({
+        key: `extrato-projection-${chunkIndex + 1}`,
+        render: () => (
+          <ContractsProjectionBreakdown
+            contracts={contractsChunk}
+            title={
+              chunkIndex === 0
+                ? 'Projeção dos Contratos (Extrato)'
+                : 'Projeção dos Contratos (Extrato) (continuação)'
+            }
+            showTotal={chunkIndex === 0}
+            itemOffset={chunkIndex * EXTRATO_CONTRACTS_PER_PAGE}
+            showConsolidatedSummary={false}
+          />
+        ),
+      })),
+      ...(hasExtratoProjection
+        ? [
+            {
+              key: 'extrato-projection-summary',
+              render: () => (
+                <ContractsProjectionConsolidatedSummary
+                  contracts={extratoContracts}
+                />
+              ),
+            },
+          ]
+        : []),
       ...(hasInsightsCore
         ? [
             {
@@ -157,6 +225,7 @@ const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
             contracts={result.loan_contracts ?? []}
             consignadoLines={result.consignado_lines ?? []}
             salarioLiquidoCent={result.salario_liquido_cent}
+            beneficioBrutoCent={result.inss_margin?.base_calculo_cent ?? null}
             totalDescontosCent={result.total_descontos_cent}
             consignadoMensalCent={result.consignado_mensal_cent}
             rowOffset={chunkIndex * DEBT_MAP_ROWS_PER_PAGE}
