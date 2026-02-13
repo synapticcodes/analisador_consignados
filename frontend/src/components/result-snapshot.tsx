@@ -1,24 +1,15 @@
 import { forwardRef } from 'react'
 
-import { ConsignadoBreakdown } from '@/components/pdf-sections/consignado-breakdown'
-import { CostBreakdownSection } from '@/components/pdf-sections/cost-breakdown-section'
-import {
-  ContractsProjectionBreakdown,
-  ContractsProjectionConsolidatedSummary,
-} from '@/components/pdf-sections/contracts-projection-breakdown'
-import { ContractsTable } from '@/components/pdf-sections/contracts-table'
+import { BankSummaryPage } from '@/components/pdf-sections/bank-summary-page'
 import { CoverSummary } from '@/components/pdf-sections/cover-summary'
+import { DetailedBreakdownPage } from '@/components/pdf-sections/detailed-breakdown-page'
+import { NextStepsPage } from '@/components/pdf-sections/next-steps-page'
+import { PdfPageWrapper } from '@/components/pdf-sections/pdf-shared'
 import {
-  buildDebtMapData,
-  DebtMapSection,
-} from '@/components/pdf-sections/debt-map-section'
-import { INSSMarginSection } from '@/components/pdf-sections/inss-margin-section'
-import { MethodologyFooter } from '@/components/pdf-sections/methodology-footer'
-import { ConsignadoConsolidatedSummary } from '@/components/pdf-sections/consignado-breakdown'
-import {
-  buildTimelineData,
-  TimelineSection,
-} from '@/components/pdf-sections/timeline-section'
+  buildConsolidatedSummary,
+  buildDetailedLoans,
+  groupByBank,
+} from '@/components/pdf-sections/pdf-utils'
 import { type FinalResultResponse } from '@/types/api'
 
 type ResultSnapshotProps = {
@@ -28,21 +19,6 @@ type ResultSnapshotProps = {
   whatsappCtaText?: string
   enablePhase2?: boolean
   enablePhase3?: boolean
-}
-
-const DEBT_MAP_ROWS_PER_PAGE = 6
-const CONSIGNADO_LINES_PER_PAGE = 5
-const EXTRATO_CONTRACTS_PER_PAGE = 4
-const TIMELINE_EVENTS_PER_PAGE = 5
-
-function splitInChunks<T>(items: T[], size: number): T[][] {
-  if (items.length === 0) return []
-  if (size <= 0) return [items]
-  const chunks: T[][] = []
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size))
-  }
-  return chunks
 }
 
 function normalizeTokenSource(value: string): string {
@@ -59,218 +35,65 @@ function isMarginCardContract(contract: { lender_name: string | null; contract_i
   return /\bRMC\b/.test(source) || /\bRCC\b/.test(source)
 }
 
-function PageWrapper({
-  pageNumber,
-  totalPages,
-  children,
-}: {
-  pageNumber: number
-  totalPages: number
-  children: React.ReactNode
-}) {
-  return (
-    <div
-      data-pdf-page="true"
-      style={{ width: 794, height: 1123 }}
-      className="mb-4 flex flex-col bg-white p-10 text-slate-900"
-    >
-      <div className="min-h-0 flex-1">{children}</div>
-      <footer className="mt-4 border-t border-slate-200 pt-3 text-right text-xs text-slate-500">
-        Página {pageNumber} de {totalPages}
-      </footer>
-    </div>
-  )
-}
+const TOTAL_PAGES = 4
 
 const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
   ({
     result,
     clientName,
     dateLabel,
-    whatsappCtaText = 'WhatsApp: (11) 99999-9999',
-    enablePhase2 = true,
-    enablePhase3 = true,
   }, ref) => {
-    const debtMapData = buildDebtMapData({
-      contracts: result.loan_contracts ?? [],
-      consignadoLines: result.consignado_lines ?? [],
-      consignadoMensalCent: result.consignado_mensal_cent,
-      totalDescontosCent: result.total_descontos_cent,
-    })
-    const timelineData = buildTimelineData(result.historical_contracts ?? [])
-
-    const hasContracts = (result.loan_contracts?.length ?? 0) > 0
-    const hasConsignadoLines = (result.consignado_lines?.length ?? 0) > 0
-    const extratoContracts =
+    // Filter out margin card contracts for consignado-based calculations
+    const activeContracts =
       result.loan_contracts?.filter((contract) => {
         const status = contract.status?.toUpperCase() ?? ''
         return status !== 'QUITADO' && status !== 'ENCERRADO' && !isMarginCardContract(contract)
       }) ?? []
-    const hasExtratoProjection = !hasConsignadoLines && extratoContracts.length > 0
-    const hasMargin = result.inss_margin !== null && result.inss_margin !== undefined
-    const hasTimeline = enablePhase3 && timelineData.nodes.length > 0
-    const hasDebtMap = enablePhase3 && debtMapData.rows.length > 0
-    const hasCostBreakdown =
-      enablePhase2 && (result.custo_juros_por_contrato?.length ?? 0) > 0
-    const hasInsightsCore = hasMargin || hasCostBreakdown
-    const debtMapChunks = hasDebtMap
-      ? splitInChunks(debtMapData.rows, DEBT_MAP_ROWS_PER_PAGE)
-      : []
-    const consignadoChunks = hasConsignadoLines
-      ? splitInChunks(result.consignado_lines ?? [], CONSIGNADO_LINES_PER_PAGE)
-      : []
-    const extratoProjectionChunks = hasExtratoProjection
-      ? splitInChunks(extratoContracts, EXTRATO_CONTRACTS_PER_PAGE)
-      : []
-    const timelineOffsets = hasTimeline
-      ? Array.from(
-          { length: Math.ceil(timelineData.nodes.length / TIMELINE_EVENTS_PER_PAGE) },
-          (_, index) => index * TIMELINE_EVENTS_PER_PAGE
-        )
-      : []
 
-    const pageDescriptors: Array<{ key: string; render: () => React.ReactNode }> = [
-      {
-        key: 'p1',
-        render: () => <CoverSummary result={result} clientName={clientName} dateLabel={dateLabel} />,
-      },
-      ...(hasContracts
-        ? [
-            {
-              key: 'contracts',
-              render: () => (
-                <ContractsTable contracts={result.loan_contracts ?? []} />
-              ),
-            },
-          ]
-        : []),
-      ...consignadoChunks.map((linesChunk, chunkIndex) => ({
-        key: `consignado-${chunkIndex + 1}`,
-        render: () => (
-          <ConsignadoBreakdown
-            lines={linesChunk}
-            title={
-              chunkIndex === 0
-                ? 'Linhas do Contracheque'
-                : 'Linhas do Contracheque (continuação)'
-            }
-            showTotal={chunkIndex === 0}
-            itemOffset={chunkIndex * CONSIGNADO_LINES_PER_PAGE}
-            showConsolidatedSummary={false}
-          />
-        ),
-      })),
-      ...(hasConsignadoLines
-        ? [
-            {
-              key: 'consignado-summary',
-              render: () => (
-                <ConsignadoConsolidatedSummary
-                  lines={result.consignado_lines ?? []}
-                />
-              ),
-            },
-          ]
-        : []),
-      ...extratoProjectionChunks.map((contractsChunk, chunkIndex) => ({
-        key: `extrato-projection-${chunkIndex + 1}`,
-        render: () => (
-          <ContractsProjectionBreakdown
-            contracts={contractsChunk}
-            title={
-              chunkIndex === 0
-                ? 'Projeção dos Contratos (Extrato)'
-                : 'Projeção dos Contratos (Extrato) (continuação)'
-            }
-            showTotal={chunkIndex === 0}
-            itemOffset={chunkIndex * EXTRATO_CONTRACTS_PER_PAGE}
-            showConsolidatedSummary={false}
-          />
-        ),
-      })),
-      ...(hasExtratoProjection
-        ? [
-            {
-              key: 'extrato-projection-summary',
-              render: () => (
-                <ContractsProjectionConsolidatedSummary
-                  contracts={extratoContracts}
-                />
-              ),
-            },
-          ]
-        : []),
-      ...(hasInsightsCore
-        ? [
-            {
-              key: 'insights-core',
-              render: () => (
-                <div className="space-y-5">
-                  {hasMargin && result.inss_margin && <INSSMarginSection margin={result.inss_margin} />}
-                  {hasCostBreakdown && (
-                    <CostBreakdownSection
-                      totalJurosCent={result.custo_juros_total_cent ?? null}
-                      items={result.custo_juros_por_contrato ?? []}
-                    />
-                  )}
-                </div>
-              ),
-            },
-          ]
-        : []),
-      ...debtMapChunks.map((_, chunkIndex) => ({
-        key: `debt-map-${chunkIndex + 1}`,
-        render: () => (
-          <DebtMapSection
-            contracts={result.loan_contracts ?? []}
-            consignadoLines={result.consignado_lines ?? []}
-            salarioLiquidoCent={result.salario_liquido_cent}
-            beneficioBrutoCent={result.inss_margin?.base_calculo_cent ?? null}
-            totalDescontosCent={result.total_descontos_cent}
-            consignadoMensalCent={result.consignado_mensal_cent}
-            rowOffset={chunkIndex * DEBT_MAP_ROWS_PER_PAGE}
-            rowLimit={DEBT_MAP_ROWS_PER_PAGE}
-            title={
-              chunkIndex === 0
-                ? 'Mapa de Dívidas por Banco'
-                : 'Mapa de Dívidas por Banco (continuação)'
-            }
-            showReconciliationOverride={chunkIndex === 0}
-          />
-        ),
-      })),
-      ...timelineOffsets.map((offset, timelineIndex) => ({
-        key: `timeline-${timelineIndex + 1}`,
-        render: () => (
-          <TimelineSection
-            historicalContracts={result.historical_contracts ?? []}
-            eventOffset={offset}
-            eventLimit={TIMELINE_EVENTS_PER_PAGE}
-            title={
-              timelineIndex === 0
-                ? 'Timeline de Refinanciamentos'
-                : 'Timeline de Refinanciamentos (continuação)'
-            }
-            showSummary={timelineIndex === 0}
-            showReasons={false}
-          />
-        ),
-      })),
-      {
-        key: 'p4',
-        render: () => <MethodologyFooter whatsappText={whatsappCtaText} />,
-      },
-    ]
+    const consignadoLines = result.consignado_lines ?? []
 
-    const totalPages = pageDescriptors.length
+    // Determine salary base for percentage calculations
+    const isBenefitContext =
+      result.inss_margin?.base_calculo_cent != null &&
+      result.inss_margin?.total_comprometido_cent != null &&
+      (result.salario_bruto_cent === null || result.salario_bruto_cent === 0) &&
+      (result.salario_liquido_cent === null || result.salario_liquido_cent === 0)
+    const salarioBrutoCent = isBenefitContext
+      ? result.inss_margin?.base_calculo_cent ?? null
+      : result.salario_bruto_cent
+
+    // Pre-compute data for all pages
+    const bankGroups = groupByBank(consignadoLines, activeContracts, salarioBrutoCent)
+    const detailedLoans = buildDetailedLoans(consignadoLines, activeContracts)
+    const consolidatedSummary = buildConsolidatedSummary(
+      consignadoLines.length > 0 ? consignadoLines : []
+    )
 
     return (
       <div ref={ref}>
-        {pageDescriptors.map((page, index) => (
-          <PageWrapper key={page.key} pageNumber={index + 1} totalPages={totalPages}>
-            {page.render()}
-          </PageWrapper>
-        ))}
+        <PdfPageWrapper pageNumber={1} totalPages={TOTAL_PAGES} dateLabel={dateLabel} clientName={clientName}>
+          <CoverSummary
+            result={result}
+            clientName={clientName}
+            dateLabel={dateLabel}
+            consolidatedSummary={consignadoLines.length > 0 ? consolidatedSummary : null}
+          />
+        </PdfPageWrapper>
+
+        <PdfPageWrapper pageNumber={2} totalPages={TOTAL_PAGES} dateLabel={dateLabel} clientName={clientName}>
+          <BankSummaryPage
+            bankGroups={bankGroups}
+            consolidatedSummary={consolidatedSummary}
+          />
+        </PdfPageWrapper>
+
+        <PdfPageWrapper pageNumber={3} totalPages={TOTAL_PAGES} dateLabel={dateLabel} clientName={clientName}>
+          <DetailedBreakdownPage loans={detailedLoans} />
+        </PdfPageWrapper>
+
+        <PdfPageWrapper pageNumber={4} totalPages={TOTAL_PAGES} dateLabel={dateLabel} clientName={clientName}>
+          <NextStepsPage />
+        </PdfPageWrapper>
       </div>
     )
   }

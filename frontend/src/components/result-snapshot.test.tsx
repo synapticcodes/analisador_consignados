@@ -37,7 +37,7 @@ function buildResult(overrides: Partial<FinalResultResponse> = {}): FinalResultR
 }
 
 describe('ResultSnapshot', () => {
-  it('renderiza capa antes/depois com economia mensal e anual estimadas', () => {
+  it('renderiza exatamente 4 páginas fixas', () => {
     render(
       <ResultSnapshot
         result={buildResult()}
@@ -45,11 +45,21 @@ describe('ResultSnapshot', () => {
       />
     )
 
-    expect(screen.getByText('Seu diagnóstico financeiro (antes e depois)')).toBeInTheDocument()
-    expect(screen.getByText('Economia mensal estimada')).toBeInTheDocument()
+    const pages = screen.getAllByText(/Página \d de 4/)
+    expect(pages).toHaveLength(4)
+  })
+
+  it('renderiza a capa com título e economia mensal', () => {
+    render(
+      <ResultSnapshot
+        result={buildResult()}
+        dateLabel="06/02/2026"
+      />
+    )
+
+    expect(screen.getByText(/Seu Diagn[óo]stico Financeiro/)).toBeInTheDocument()
+    expect(screen.getByText(/Economia mensal estimada/)).toBeInTheDocument()
     expect(screen.getAllByText((content) => content.includes('540,00')).length).toBeGreaterThan(0)
-    expect(screen.getByText((content) => content.includes('Economia anual estimada:'))).toBeInTheDocument()
-    expect(screen.getByText((content) => content.includes('6.480,00'))).toBeInTheDocument()
   })
 
   it('mantém fallback de capa quando faltam dados para estimativa', () => {
@@ -65,9 +75,8 @@ describe('ResultSnapshot', () => {
       />
     )
 
-    expect(screen.getByText('Economia mensal estimada')).toBeInTheDocument()
-    expect(screen.getByText('Dados insuficientes para estimar a economia mensal.')).toBeInTheDocument()
-    expect(screen.getByText('Novo salário líquido estimado')).toBeInTheDocument()
+    expect(screen.getByText(/Economia mensal estimada/)).toBeInTheDocument()
+    expect(screen.getByText(/Dados insuficientes para estimar a economia mensal/)).toBeInTheDocument()
     expect(screen.getAllByText('R$ --').length).toBeGreaterThan(0)
   })
 
@@ -100,125 +109,30 @@ describe('ResultSnapshot', () => {
       />
     )
 
-    expect(screen.getByText('Benefício bruto')).toBeInTheDocument()
-    expect(screen.getByText('Benefício líquido')).toBeInTheDocument()
-    expect(screen.getByText('Desconto mensal atual no benefício')).toBeInTheDocument()
-    expect(screen.getByText('Desconto mensal no benefício')).toBeInTheDocument()
-    expect(screen.getByText('Novo benefício líquido estimado')).toBeInTheDocument()
+    expect(screen.getAllByText((content) => content.includes('Benefício bruto')).length).toBeGreaterThan(0)
+    expect(screen.getAllByText((content) => content.includes('Benefício líquido')).length).toBeGreaterThan(0)
     expect(screen.getAllByText((content) => content.includes('1.621,00')).length).toBeGreaterThan(0)
-    expect(screen.getAllByText((content) => content.includes('1.009,65')).length).toBeGreaterThan(0)
-    expect(screen.getAllByText((content) => content.includes('7.523,83')).length).toBeGreaterThan(0)
-    expect(screen.getAllByText((content) => content.includes('611,35')).length).toBeGreaterThan(0)
-    expect(screen.getAllByText((content) => content.includes('152,83')).length).toBeGreaterThan(0)
     expect(screen.queryByText('Salário bruto')).not.toBeInTheDocument()
-    expect(screen.queryByText('Salário líquido')).not.toBeInTheDocument()
   })
 
-  it('renderiza apenas páginas 1 e 4 quando não há dados de páginas condicionais', () => {
-    render(
-      <ResultSnapshot
-        result={buildResult()}
-        dateLabel="06/02/2026"
-      />
-    )
-
-    const pages = screen.getAllByText(/Página \d de \d/)
-    expect(pages).toHaveLength(2)
-    expect(screen.queryByText('Contratos Identificados')).not.toBeInTheDocument()
-    expect(screen.getByText('Metodologia e Próximos Passos')).toBeInTheDocument()
-  })
-
-  it('renderiza páginas condicionais sem exibir ofertas no relatório PDF', () => {
+  it('renderiza página 2 com resumo por banco quando há consignado_lines', () => {
     render(
       <ResultSnapshot
         result={buildResult({
-          loan_contracts: [
-            {
-              id: 'c1',
-              lender_name: 'Banco A',
-              contract_id: '1',
-              parcela_cent: 10000,
-              parcelas_restantes: 10,
-              valor_total_cent: 100000,
-              taxa_juros: '1,40%',
-              status: 'ATIVO',
-              cet_mensal: null,
-              cet_anual: null,
-              iof_cent: 1000,
-              valor_emprestado_cent: 90000,
-            },
-          ],
           consignado_lines: [
             {
               descricao: 'EMPR CONSIGNADO',
               descricao_raw: 'EMPREST BCO PRIVADOS - PAN',
               descricao_canonica: 'EMPREST BCO PRIVADOS',
               rubrica: '123',
-              valor_cent: 3000,
-            },
-          ],
-          inss_margin: {
-            base_calculo_cent: 100000,
-            max_comprometimento_cent: 45000,
-            total_comprometido_cent: 30000,
-            margem_emprestimo_cent: 15000,
-            margem_rmc_cent: 0,
-            margem_rcc_cent: 5000,
-            cet_mensal: null,
-            cet_anual: null,
-            rmc_banco: null,
-            rmc_limite_cent: null,
-            rmc_reservado_cent: null,
-            evidence: null,
-          },
-          offers: [
-            {
-              id: 'o1',
-              product_id: 'p',
-              kind: 'SUPER',
-              payment_method: 'BOLETO',
-              entry_value_cent: 0,
-              entry_due_days: 0,
-              installment_count: 12,
-              installment_value_cent: 10000,
-              first_payment_days: 30,
-              total_value_cent: 120000,
-              salary_liquid_used_cent: 420000,
-              percent_used: 30,
-              text: 'Oferta super',
-              created_at: '2026-02-06T00:00:00Z',
+              valor_cent: 30000,
             },
             {
-              id: 'o2',
-              product_id: 'p',
-              kind: 'PRINCIPAL',
-              payment_method: 'BOLETO',
-              entry_value_cent: 0,
-              entry_due_days: 0,
-              installment_count: 12,
-              installment_value_cent: 9000,
-              first_payment_days: 30,
-              total_value_cent: 108000,
-              salary_liquid_used_cent: 420000,
-              percent_used: 27,
-              text: 'Oferta principal',
-              created_at: '2026-02-06T00:00:00Z',
-            },
-            {
-              id: 'o3',
-              product_id: 'p',
-              kind: 'REDUZIDA',
-              payment_method: 'BOLETO',
-              entry_value_cent: 0,
-              entry_due_days: 0,
-              installment_count: 12,
-              installment_value_cent: 8000,
-              first_payment_days: 30,
-              total_value_cent: 96000,
-              salary_liquid_used_cent: 420000,
-              percent_used: 24,
-              text: 'Oferta reduzida',
-              created_at: '2026-02-06T00:00:00Z',
+              descricao: 'EMPR CONSIGNADO BMG',
+              descricao_raw: 'EMPREST BCO BMG',
+              descricao_canonica: 'EMPREST BCO BMG',
+              rubrica: '45',
+              valor_cent: 20000,
             },
           ],
         })}
@@ -226,29 +140,57 @@ describe('ResultSnapshot', () => {
       />
     )
 
-    const pages = screen.getAllByText(/Página \d de \d/)
-    expect(pages.length).toBeGreaterThanOrEqual(4)
-
-    expect(screen.queryByText('REDUZIDA')).not.toBeInTheDocument()
-    expect(screen.queryByText('PRINCIPAL')).not.toBeInTheDocument()
-    expect(screen.queryByText('SUPER')).not.toBeInTheDocument()
-    expect(screen.getByText('EMPREST BCO PRIVADOS - PAN · Rub 123')).toBeInTheDocument()
+    expect(screen.getByText('Resumo por Banco')).toBeInTheDocument()
+    expect(screen.getAllByText('Banco PAN').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Banco BMG').length).toBeGreaterThan(0)
   })
 
-  it('mantém CTA do WhatsApp na página 4', () => {
+  it('renderiza página 3 com detalhamento por empréstimo', () => {
+    render(
+      <ResultSnapshot
+        result={buildResult({
+          consignado_lines: [
+            {
+              descricao: 'EMPR CONSIGNADO',
+              descricao_raw: 'EMPREST BCO PRIVADOS - PAN',
+              descricao_canonica: 'EMPREST BCO PRIVADOS',
+              rubrica: '123',
+              valor_cent: 30000,
+            },
+          ],
+        })}
+        dateLabel="06/02/2026"
+      />
+    )
+
+    expect(screen.getByText(/Detalhamento por Empr[ée]stimo/)).toBeInTheDocument()
+    expect(screen.getByText(/Como ler esta tabela/)).toBeInTheDocument()
+  })
+
+  it('renderiza página 4 com próximos passos e glossário', () => {
     render(
       <ResultSnapshot
         result={buildResult()}
         dateLabel="06/02/2026"
-        whatsappCtaText="WhatsApp: (11) 99999-9999"
       />
     )
 
-    expect(
-      screen.getByText('Próximo passo: fale com nossa equipe no WhatsApp para análise completa.')
-    ).toBeInTheDocument()
-    expect(screen.getByText('WhatsApp: (11) 99999-9999')).toBeInTheDocument()
-    expect(screen.queryByText('O que ainda não sabemos')).not.toBeInTheDocument()
+    expect(screen.getByText(/Pr[óo]ximos Passos/)).toBeInTheDocument()
+    expect(screen.getByText(/Gloss[áa]rio/)).toBeInTheDocument()
+    expect(screen.getByText(/Credilly Solu[çc][õo]es Financeiras Ltda/)).toBeInTheDocument()
+  })
+
+  it('header aparece em todas as páginas', () => {
+    render(
+      <ResultSnapshot
+        result={buildResult()}
+        dateLabel="06/02/2026"
+      />
+    )
+
+    const headers = screen.getAllByText(/Diagn[óo]stico Financeiro/)
+    // At least 4 (one header bar per page) + cover title
+    expect(headers.length).toBeGreaterThanOrEqual(4)
   })
 
   it('não renderiza a seção Simulação de Economia no relatório', () => {
@@ -270,191 +212,77 @@ describe('ResultSnapshot', () => {
     expect(screen.queryByText('Simulação de Economia')).not.toBeInTheDocument()
   })
 
-  it('cria páginas de continuação no mapa de dívidas e mostra reconciliação só na primeira', () => {
-    const manyContracts = Array.from({ length: 9 }).map((_, index) => ({
-      id: `m-${index}`,
-      lender_name: `Banco ${index + 1}`,
-      contract_id: `${index + 1}`,
-      parcela_cent: 9000 - index * 500,
-      parcelas_restantes: 12,
-      valor_total_cent: 100000,
-      taxa_juros: null,
-      status: 'ATIVO',
-      cet_mensal: null,
-      cet_anual: null,
-      iof_cent: null,
-      valor_emprestado_cent: null,
-    }))
-
+  it('usa fallback de loan_contracts quando consignado_lines está vazio', () => {
     render(
       <ResultSnapshot
         result={buildResult({
-          loan_contracts: manyContracts,
-          consignado_lines: [],
-          total_descontos_cent: 120000,
-          consignado_mensal_cent: 77345,
-        })}
-        dateLabel="06/02/2026"
-      />
-    )
-
-    expect(screen.getByText('Mapa de Dívidas por Banco')).toBeInTheDocument()
-    expect(screen.getByText('Mapa de Dívidas por Banco (continuação)')).toBeInTheDocument()
-    expect(screen.getAllByText('Reconciliação dos descontos')).toHaveLength(1)
-  })
-
-  it('pagina timeline em múltiplas páginas quando há muitos eventos históricos', () => {
-    const manyHistory = Array.from({ length: 12 }).map((_, index) => ({
-      id: `h-${index}`,
-      lender_name: `Banco Histórico ${index + 1}`,
-      contract_id: `${1000 + index}`,
-      data_contratacao: `2025-${String((index % 12) + 1).padStart(2, '0')}-01`,
-      data_quitacao: `2025-${String((index % 12) + 1).padStart(2, '0')}-01`,
-      parcela_cent: 10000,
-      valor_emprestado_cent: null,
-      motivo_encerramento: 'Encerrado',
-    }))
-
-    render(
-      <ResultSnapshot
-        result={buildResult({
-          historical_contracts: manyHistory,
-        })}
-        dateLabel="06/02/2026"
-      />
-    )
-
-    expect(screen.getByText('Timeline de Refinanciamentos')).toBeInTheDocument()
-    expect(
-      screen.getAllByText('Timeline de Refinanciamentos (continuação)').length
-    ).toBeGreaterThan(0)
-    expect(screen.getAllByText('Eventos identificados:')).toHaveLength(1)
-  })
-
-  it('pagina linhas do contracheque sem estourar página quando há muitas linhas', () => {
-    const lines = Array.from({ length: 25 }).map((_, index) => ({
-      descricao: `EMPREST BCO TESTE ${index + 1}`,
-      rubrica: `${100 + index}`,
-      valor_cent: 10000 + index,
-    }))
-
-    render(
-      <ResultSnapshot
-        result={buildResult({
-          consignado_lines: lines,
-        })}
-        dateLabel="06/02/2026"
-        enablePhase3={false}
-      />
-    )
-
-    const pages = screen.getAllByText(/Página \d de \d/)
-    expect(pages).toHaveLength(8)
-    expect(screen.getByText('Linhas do Contracheque')).toBeInTheDocument()
-    expect(screen.getAllByText('Linhas do Contracheque (continuação)').length).toBeGreaterThan(0)
-    expect(screen.getByText('EMPREST BCO TESTE 1 · Rub 100')).toBeInTheDocument()
-    expect(screen.getByText('EMPREST BCO TESTE 25 · Rub 124')).toBeInTheDocument()
-    expect(screen.queryByText(/parte \d de \d/)).not.toBeInTheDocument()
-    expect(screen.getAllByText('Total consignados')).toHaveLength(1)
-    expect(screen.getAllByText('Resumo geral consolidado')).toHaveLength(1)
-  })
-
-  it('renderiza projeção de contratos do extrato quando não há linhas do contracheque', () => {
-    const contracts = Array.from({ length: 6 }).map((_, index) => ({
-      id: `e-${index}`,
-      lender_name: `Banco Extrato ${index + 1}`,
-      contract_id: `${200 + index}`,
-      parcela_cent: 10000 + index * 1000,
-      parcelas_restantes: 12,
-      valor_total_cent: 0,
-      taxa_juros: null,
-      status: 'ATIVO',
-      cet_mensal: null,
-      cet_anual: null,
-      iof_cent: null,
-      valor_emprestado_cent: null,
-    }))
-
-    render(
-      <ResultSnapshot
-        result={buildResult({
-          loan_contracts: contracts,
+          loan_contracts: [
+            {
+              id: 'c1',
+              lender_name: 'Banco A',
+              contract_id: '1',
+              parcela_cent: 10000,
+              parcelas_restantes: 10,
+              valor_total_cent: 100000,
+              taxa_juros: '1,40%',
+              status: 'ATIVO',
+              cet_mensal: null,
+              cet_anual: null,
+              iof_cent: 1000,
+              valor_emprestado_cent: 90000,
+            },
+          ],
           consignado_lines: [],
         })}
         dateLabel="06/02/2026"
-        enablePhase3={false}
       />
     )
 
-    expect(screen.getByText('Projeção dos Contratos (Extrato)')).toBeInTheDocument()
-    expect(
-      screen.getByText('Projeção dos Contratos (Extrato) (continuação)')
-    ).toBeInTheDocument()
-    expect(screen.getAllByText('Total mensal dos contratos')).toHaveLength(1)
-    expect(screen.getAllByText('Resumo geral consolidado')).toHaveLength(1)
-    expect(screen.queryByText('Linhas do Contracheque')).not.toBeInTheDocument()
+    expect(screen.getAllByText('Banco A').length).toBeGreaterThan(0)
+    expect(screen.getByText('Resumo por Banco')).toBeInTheDocument()
   })
 
-  it('não inclui contratos de cartão RMC/RCC na projeção de contratos do extrato', () => {
-    const contracts = [
-      ...Array.from({ length: 4 }).map((_, index) => ({
-        id: `n-${index}`,
-        lender_name: `Banco Extrato ${index + 1}`,
-        contract_id: `${300 + index}`,
-        parcela_cent: 10000 + index * 1000,
-        parcelas_restantes: 12,
-        valor_total_cent: 0,
-        taxa_juros: null,
-        status: 'ATIVO',
-        cet_mensal: null,
-        cet_anual: null,
-        iof_cent: null,
-        valor_emprestado_cent: null,
-      })),
-      {
-        id: 'rmc-1',
-        lender_name: 'Cartão RMC',
-        contract_id: 'RMC-999',
-        parcela_cent: 9000,
-        parcelas_restantes: 12,
-        valor_total_cent: 0,
-        taxa_juros: null,
-        status: 'ATIVO',
-        cet_mensal: null,
-        cet_anual: null,
-        iof_cent: null,
-        valor_emprestado_cent: null,
-      },
-      {
-        id: 'rcc-1',
-        lender_name: 'Cartão RCC',
-        contract_id: 'RCC-888',
-        parcela_cent: 7000,
-        parcelas_restantes: 10,
-        valor_total_cent: 0,
-        taxa_juros: null,
-        status: 'ATIVO',
-        cet_mensal: null,
-        cet_anual: null,
-        iof_cent: null,
-        valor_emprestado_cent: null,
-      },
-    ]
-
+  it('não inclui contratos RMC/RCC na listagem de bancos', () => {
     render(
       <ResultSnapshot
         result={buildResult({
-          loan_contracts: contracts,
+          loan_contracts: [
+            {
+              id: 'n-1',
+              lender_name: 'Banco Extrato 1',
+              contract_id: '301',
+              parcela_cent: 10000,
+              parcelas_restantes: 12,
+              valor_total_cent: 0,
+              taxa_juros: null,
+              status: 'ATIVO',
+              cet_mensal: null,
+              cet_anual: null,
+              iof_cent: null,
+              valor_emprestado_cent: null,
+            },
+            {
+              id: 'rmc-1',
+              lender_name: 'Cartão RMC',
+              contract_id: 'RMC-999',
+              parcela_cent: 9000,
+              parcelas_restantes: 12,
+              valor_total_cent: 0,
+              taxa_juros: null,
+              status: 'ATIVO',
+              cet_mensal: null,
+              cet_anual: null,
+              iof_cent: null,
+              valor_emprestado_cent: null,
+            },
+          ],
           consignado_lines: [],
         })}
         dateLabel="06/02/2026"
-        enablePhase3={false}
       />
     )
 
-    expect(screen.getByText('Projeção dos Contratos (Extrato)')).toBeInTheDocument()
-    expect(
-      screen.queryByText('Projeção dos Contratos (Extrato) (continuação)')
-    ).not.toBeInTheDocument()
+    expect(screen.getAllByText('Banco Extrato 1').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Cartão RMC')).not.toBeInTheDocument()
   })
 })

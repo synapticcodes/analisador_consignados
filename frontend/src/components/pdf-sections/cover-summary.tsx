@@ -1,21 +1,16 @@
 import { formatCurrency, type FinalResultResponse } from '@/types/api'
+import { GrayBox, GreenHighlightBox, YellowCalloutBox } from './pdf-shared'
+import { PDF_COLORS, type ConsolidatedSummary } from './pdf-utils'
 
 type CoverSummaryProps = {
   result: FinalResultResponse
   clientName?: string
   dateLabel: string
+  consolidatedSummary?: ConsolidatedSummary | null
 }
 
-function metricLabel(label: string, value: number | null) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-      <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-1 text-xl font-semibold text-slate-900">{formatCurrency(value)}</p>
-    </div>
-  )
-}
-
-export function CoverSummary({ result, clientName, dateLabel }: CoverSummaryProps) {
+export function CoverSummary({ result, clientName, dateLabel, consolidatedSummary }: CoverSummaryProps) {
+  // ---- keep all original calculation logic unchanged ----
   const salarioBrutoCent = result.salario_bruto_cent
   const salarioLiquidoCent = result.salario_liquido_cent
   const totalDescontosCent = result.total_descontos_cent
@@ -24,6 +19,7 @@ export function CoverSummary({ result, clientName, dateLabel }: CoverSummaryProp
   const baseCalculoCent = result.inss_margin?.base_calculo_cent ?? null
   const totalComprometidoCent = result.inss_margin?.total_comprometido_cent ?? null
   const dividaTotalConsignadaCent = result.divida_total_consignada_cent ?? null
+  const consignadoMensalCent = result.consignado_mensal_cent
 
   const isBenefitContext =
     baseCalculoCent !== null &&
@@ -33,15 +29,6 @@ export function CoverSummary({ result, clientName, dateLabel }: CoverSummaryProp
 
   const brutoLabel = isBenefitContext ? 'Benefício bruto' : 'Salário bruto'
   const liquidoLabel = isBenefitContext ? 'Benefício líquido' : 'Salário líquido'
-  const descontoAtualLabel = isBenefitContext
-    ? 'Desconto mensal atual no benefício'
-    : 'Desconto mensal atual no salário'
-  const descontoReducaoLabel = isBenefitContext
-    ? 'Desconto mensal no benefício'
-    : 'Desconto mensal no salário'
-  const liquidoProjetadoLabel = isBenefitContext
-    ? 'Novo benefício líquido estimado'
-    : 'Novo salário líquido estimado'
 
   const brutoBaseCent = isBenefitContext ? baseCalculoCent : salarioBrutoCent
   const liquidoBaseCent =
@@ -59,140 +46,218 @@ export function CoverSummary({ result, clientName, dateLabel }: CoverSummaryProp
           : Math.floor((descontoMensalAtualCent * 25) / 100))
       : dividaMensalReduzidaCent
 
+  const consignadoCent = isBenefitContext
+    ? descontoMensalAtualCent
+    : (consignadoMensalCent ?? null)
+  const outrosDescontosCent =
+    totalDescontosBaseCent !== null && consignadoCent !== null
+      ? Math.max(totalDescontosBaseCent - consignadoCent, 0)
+      : null
+
   const economiaMensalCent =
     descontoMensalAtualCent !== null && descontoMensalReduzidoCent !== null
       ? Math.max(descontoMensalAtualCent - descontoMensalReduzidoCent, 0)
       : null
-  const economiaAnualCent = economiaMensalCent !== null ? economiaMensalCent * 12 : null
+
+  const novoDescontoMensalCent =
+    descontoMensalReduzidoCent !== null && outrosDescontosCent !== null
+      ? descontoMensalReduzidoCent + outrosDescontosCent
+      : descontoMensalReduzidoCent
 
   const salarioLiquidoProjetadoCent =
-    brutoBaseCent !== null && descontoMensalReduzidoCent !== null && brutoBaseCent > 0
-      ? Math.max(brutoBaseCent - descontoMensalReduzidoCent, 0)
-      : liquidoBaseCent !== null && economiaMensalCent !== null
-        ? Math.max(liquidoBaseCent + economiaMensalCent, 0)
-        : null
+    brutoBaseCent !== null && novoDescontoMensalCent !== null && brutoBaseCent > 0
+      ? Math.max(brutoBaseCent - novoDescontoMensalCent, 0)
+      : brutoBaseCent !== null && descontoMensalReduzidoCent !== null && brutoBaseCent > 0
+        ? Math.max(brutoBaseCent - descontoMensalReduzidoCent, 0)
+        : liquidoBaseCent !== null && economiaMensalCent !== null
+          ? Math.max(liquidoBaseCent + economiaMensalCent, 0)
+          : null
 
-  const salarioLiquidoProjetadoHint =
-    brutoBaseCent !== null && descontoMensalReduzidoCent !== null && brutoBaseCent > 0
-      ? isBenefitContext
-        ? 'estimado com base no benefício bruto e no desconto reduzido'
-        : 'estimado com base no salário bruto e no desconto reduzido'
-      : isBenefitContext
-        ? 'estimado com base no benefício líquido atual e na economia mensal'
-        : 'estimado com base no salário líquido atual e na economia mensal'
+  const displayEconomiaMensalCent = consolidatedSummary
+    ? consolidatedSummary.economiaMensalParcelasCent
+    : economiaMensalCent
+
+  // ---- table rows ----
+  type RowDef = {
+    label: string
+    atual: number | null
+    projecao: number | null
+    isRed?: boolean
+    isGreen?: boolean
+    isTotal?: boolean
+  }
+
+  const rows: RowDef[] = [
+    { label: brutoLabel, atual: brutoBaseCent, projecao: brutoBaseCent },
+    {
+      label: 'Total descontado em folha',
+      atual: totalDescontosBaseCent,
+      projecao: novoDescontoMensalCent,
+      isRed: true,
+    },
+    {
+      label: 'Consignados',
+      atual: consignadoCent,
+      projecao: descontoMensalReduzidoCent,
+    },
+    {
+      label: 'Outros descontos',
+      atual: outrosDescontosCent,
+      projecao: outrosDescontosCent,
+    },
+    {
+      label: liquidoLabel,
+      atual: liquidoBaseCent,
+      projecao: salarioLiquidoProjetadoCent,
+      isGreen: true,
+      isTotal: true,
+    },
+  ]
 
   return (
-    <section className="flex h-full flex-col">
-      <header className="border-b border-slate-200 pb-4">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-slate-500">Diagnóstico Financeiro</p>
-          <h1 className="mt-2 text-3xl font-semibold text-slate-900">
-            Seu diagnóstico financeiro (antes e depois)
-          </h1>
-          <p className="mt-1 text-sm text-slate-600">
-            {clientName ? `Cliente: ${clientName} • ` : ''}Data: {dateLabel}
-          </p>
-        </div>
-      </header>
+    <section className="flex h-full flex-col" style={{ color: PDF_COLORS.textDark }}>
+      {/* Title */}
+      <div className="mb-1">
+        <h1
+          className="text-[22px] font-bold leading-tight"
+          style={{ color: PDF_COLORS.darkBlue }}
+        >
+          Seu Diagn&oacute;stico Financeiro
+        </h1>
+        <p className="mt-1 text-[11px]" style={{ color: PDF_COLORS.mediumGray }}>
+          An&aacute;lise dos empr&eacute;stimos consignados identificados no seu contracheque
+        </p>
+      </div>
 
-      <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-              Antes
-            </p>
-            <h2 className="mt-2 text-lg font-semibold text-slate-900">Quanto entra e quanto sai</h2>
-            <div className="mt-3 space-y-2">
-              {metricLabel(brutoLabel, brutoBaseCent)}
-              {metricLabel(liquidoLabel, liquidoBaseCent)}
-              <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-                <p className="text-xs uppercase tracking-wide text-red-700">Total de descontos</p>
-                <p className="mt-1 text-3xl font-semibold text-red-700">
-                  {formatCurrency(totalDescontosBaseCent)}
-                </p>
-                <p className="mt-1 text-xs text-red-700">
-                  {isBenefitContext
-                    ? 'dívida total consignada identificada no extrato'
-                    : 'descontos do salário (em folha)'}
-                </p>
-              </div>
-              <div className="rounded-xl border border-red-200 bg-white p-4">
-                <p className="text-xs text-slate-600">{descontoAtualLabel}</p>
-                <p className="mt-1 text-4xl font-semibold text-red-700">
-                  {formatCurrency(descontoMensalAtualCent)}
-                </p>
-                <p className="mt-1 text-xs font-semibold text-red-700">isso aperta seu orçamento mês a mês.</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700">
-              Depois
-            </p>
-            <h2 className="mt-2 text-lg font-semibold text-slate-900">Como ficaria com a redução</h2>
-            <div className="mt-3 space-y-2">
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                <p className="text-xs uppercase tracking-wide text-emerald-700">{descontoReducaoLabel}</p>
-                <p className="mt-1 text-4xl font-semibold text-emerald-700">
-                  {formatCurrency(descontoMensalReduzidoCent)}
-                </p>
-                <p className="mt-1 text-xs text-emerald-700">
-                  valor estimado após redução do comprometimento mensal
-                </p>
-              </div>
-
-              <div className="rounded-xl border border-emerald-200 bg-white p-4">
-                <p className="text-xs text-slate-600">{liquidoProjetadoLabel}</p>
-                <p className="mt-1 text-4xl font-semibold text-emerald-700">
-                  {formatCurrency(salarioLiquidoProjetadoCent)}
-                </p>
-                <p className="mt-1 text-xs text-slate-600">{salarioLiquidoProjetadoHint}</p>
-              </div>
-
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                <p className="text-xs uppercase tracking-wide text-emerald-700">Diferença mensal</p>
-                <p className="mt-1 text-4xl font-semibold text-emerald-700">
-                  + {formatCurrency(economiaMensalCent)}
-                </p>
-                <p className="mt-1 text-xs font-semibold text-emerald-700">
-                  seu orçamento volta a respirar.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-100/60 p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-800">
-            Economia mensal estimada
-          </p>
-          <p className="mt-1 text-5xl font-semibold text-emerald-800">{formatCurrency(economiaMensalCent)}</p>
-          <p className="mt-2 text-sm">
-            <span className="font-semibold text-red-700">{formatCurrency(descontoMensalAtualCent)} / mês</span>
-            <span className="px-1 text-slate-700">{'->'}</span>
-            <span className="font-bold text-emerald-700">
-              {formatCurrency(descontoMensalReduzidoCent)} / mês
+      {/* Client identification box */}
+      {clientName && (
+        <div
+          className="mb-2 flex items-center justify-between rounded-sm px-4 py-3"
+          style={{
+            backgroundColor: PDF_COLORS.lightBlue,
+            borderLeft: `4px solid ${PDF_COLORS.darkBlue}`,
+          }}
+        >
+          <p className="text-[12px]" style={{ color: PDF_COLORS.textDark }}>
+            <span className="font-semibold">Cliente:</span>{' '}
+            <span className="text-[14px] font-bold" style={{ color: PDF_COLORS.darkBlue }}>
+              {clientName.toUpperCase()}
             </span>
           </p>
-          <p className="mt-1 text-sm text-emerald-800">
-            Economia anual estimada: {formatCurrency(economiaAnualCent)}
-          </p>
-          {economiaMensalCent === null && (
-            <p className="mt-1 text-xs text-slate-600">Dados insuficientes para estimar a economia mensal.</p>
-          )}
         </div>
+      )}
 
-        <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-sm font-semibold text-slate-900">Como chegamos aos números</p>
-          <p className="mt-1 text-xs leading-relaxed text-slate-700">
-            {isBenefitContext
-              ? 'Usamos seu extrato de empréstimo consignado e o saldo dos contratos para estimar o peso mensal e projetar um cenário baseado em acordos já obtidos com perfis semelhantes ao seu.'
-              : 'Usamos seu contracheque e o saldo dos consignados para estimar o peso mensal e projetar um cenário baseado em acordos já obtidos com perfis semelhantes ao seu.'}
-          </p>
-          <p className="mt-1 text-xs text-slate-600">Condições e descontos variam conforme credor e perfil.</p>
-        </div>
+      {/* Yellow callout */}
+      <YellowCalloutBox title="O que este documento mostra">
+        <p>
+          Este relat&oacute;rio apresenta uma compara&ccedil;&atilde;o entre a situa&ccedil;&atilde;o
+          atual dos seus empr&eacute;stimos consignados e uma proje&ccedil;&atilde;o de como ficariam
+          ap&oacute;s a renegocia&ccedil;&atilde;o. Os valores projetados s&atilde;o estimativas
+          baseadas em redu&ccedil;&otilde;es j&aacute; obtidas com perfis semelhantes.
+        </p>
+      </YellowCalloutBox>
+
+      {/* Comparison table */}
+      <div className="mt-3">
+        <table className="w-full border-collapse text-[10px]">
+          <thead>
+            <tr style={{ backgroundColor: PDF_COLORS.darkBlue, color: PDF_COLORS.white }}>
+              <th className="px-3 py-2 text-left font-semibold">&nbsp;</th>
+              <th className="px-3 py-2 text-right font-semibold">SITUA&Ccedil;&Atilde;O ATUAL</th>
+              <th className="px-3 py-2 text-right font-semibold">PROJE&Ccedil;&Atilde;O RENEGOCIADA</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => {
+              const bgColor = row.isTotal
+                ? PDF_COLORS.lightGreen
+                : i % 2 === 0
+                  ? PDF_COLORS.white
+                  : PDF_COLORS.warmGray
+              const atualStyle = row.isRed
+                ? { color: PDF_COLORS.accentRed, fontWeight: 700 as const }
+                : {}
+              const projecaoStyle = row.isGreen
+                ? { color: PDF_COLORS.accentGreen, fontWeight: 700 as const }
+                : row.isRed
+                  ? { color: PDF_COLORS.accentGreen, fontWeight: 700 as const }
+                  : {}
+              return (
+                <tr key={row.label} style={{ backgroundColor: bgColor }}>
+                  <td
+                    className="px-3 py-1.5 font-medium"
+                    style={{ borderBottom: `1px solid ${PDF_COLORS.borderGray}` }}
+                  >
+                    {row.label}
+                  </td>
+                  <td
+                    className="px-3 py-1.5 text-right"
+                    style={{ borderBottom: `1px solid ${PDF_COLORS.borderGray}`, ...atualStyle }}
+                  >
+                    {formatCurrency(row.atual)}
+                  </td>
+                  <td
+                    className="px-3 py-1.5 text-right"
+                    style={{ borderBottom: `1px solid ${PDF_COLORS.borderGray}`, ...projecaoStyle }}
+                  >
+                    {formatCurrency(row.projecao)}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
+
+      {/* Green economy highlight */}
+      <div className="mt-3">
+        <GreenHighlightBox>
+          <p
+            className="text-[10px] font-semibold uppercase tracking-wide"
+            style={{ color: PDF_COLORS.accentGreen }}
+          >
+            Economia mensal estimada
+          </p>
+          <p
+            className="mt-0.5 text-[28px] font-bold leading-tight"
+            style={{ color: PDF_COLORS.accentGreen }}
+          >
+            {formatCurrency(displayEconomiaMensalCent)}
+          </p>
+          {displayEconomiaMensalCent === null && (
+            <p className="mt-1 text-[10px]" style={{ color: PDF_COLORS.textSecondary }}>
+              Dados insuficientes para estimar a economia mensal.
+            </p>
+          )}
+        </GreenHighlightBox>
+      </div>
+
+      {/* Gray explanation box */}
+      <div className="mt-3">
+        <GrayBox title="Como funciona a renegociação">
+          <p className="mb-1">
+            A renegocia&ccedil;&atilde;o consiste em revisar judicialmente os contratos de
+            empr&eacute;stimo consignado, buscando a redu&ccedil;&atilde;o das parcelas mensais
+            descontadas em folha.
+          </p>
+          <p className="mb-1">
+            Com base em decis&otilde;es judiciais favor&aacute;veis, &eacute; poss&iacute;vel reduzir
+            o comprometimento mensal de cada contrato, mantendo os mesmos prazos e condições gerais.
+          </p>
+          <p>
+            Os valores projetados neste relat&oacute;rio consideram uma redu&ccedil;&atilde;o
+            estimada de 75% no valor de cada parcela, refletindo o hist&oacute;rico de
+            resultados obtidos pela Credilly em casos semelhantes.
+          </p>
+        </GrayBox>
+      </div>
+
+      {/* Footer note */}
+      <p className="mt-auto pt-2 text-[8px]" style={{ color: PDF_COLORS.mediumGray }}>
+        * Os valores apresentados s&atilde;o baseados nos dados extra&iacute;dos do contracheque
+        e/ou extrato de empr&eacute;stimo consignado fornecidos. Condi&ccedil;&otilde;es reais
+        podem variar conforme credor e perfil.
+      </p>
     </section>
   )
 }

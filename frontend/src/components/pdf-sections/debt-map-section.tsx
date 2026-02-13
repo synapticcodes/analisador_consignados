@@ -3,6 +3,14 @@ import {
   type ConsignadoLineDetail,
   type LoanContractDetail,
 } from '@/types/api'
+import {
+  inferInstitution,
+  BANK_MATCHERS,
+  GENERIC_TOKENS,
+} from './pdf-utils'
+
+// Re-export for backward compatibility
+export { inferInstitution, BANK_MATCHERS, GENERIC_TOKENS }
 
 type DebtMapSectionProps = {
   contracts: LoanContractDetail[]
@@ -29,98 +37,6 @@ export type DebtMapData = {
   totalDescontosCent: number | null
   outrosDescontosCent: number | null
   showReconciliation: boolean
-}
-
-const BANK_MATCHERS: Array<{ label: string; patterns: RegExp[] }> = [
-  { label: 'Banco BRB', patterns: [/\bBRB\b/, /\bBRB\s+CFI\b/] },
-  { label: 'Banco INBURSA', patterns: [/\bINBURSA\b/] },
-  { label: 'Banco PRB', patterns: [/\bPRB\b/] },
-  { label: 'Banco Safra', patterns: [/\bSAFRA\b/, /\bBCO\s+SAF\b/, /\bSAF\b/] },
-  { label: 'Banco PANAMERICANO', patterns: [/\bPANAMERICANO\b/] },
-  { label: 'Banco PAN', patterns: [/\bPAN\b/] },
-  { label: 'Banco SANTANDER', patterns: [/\bSANTANDER\b/] },
-  { label: 'Banco BMG', patterns: [/\bBMG\b/] },
-  { label: 'Banco BRADESCO', patterns: [/\bBRADESCO\b/] },
-  { label: 'Banco ITAU', patterns: [/\bITAU\b/] },
-  { label: 'Banco CAIXA', patterns: [/\bCAIXA\b/] },
-  { label: 'Banco C6', patterns: [/\bC6\b/] },
-  { label: 'Banco AGIBANK', patterns: [/\bAGIBANK\b/] },
-  { label: 'Banco DAYCOVAL', patterns: [/\bDAYCOVAL\b/] },
-  { label: 'Banco MERCANTIL', patterns: [/\bMERCANTIL\b/] },
-  { label: 'Banco BANRISUL', patterns: [/\bBANRISUL\b/] },
-  { label: 'Banco NUBANK', patterns: [/\bNUBANK\b/] },
-  { label: 'Banco BB', patterns: [/\bBB\b/, /\bBANCO\s+DO\s+BRASIL\b/] },
-]
-
-const GENERIC_TOKENS = new Set([
-  'BCO',
-  'BANCO',
-  'PRIVADO',
-  'PRIVADOS',
-  'OFICIAL',
-  'EMPREST',
-  'EMPRESTIMO',
-  'EMPR',
-  'DESCONTO',
-  'CONSIGNADO',
-  'SEM',
-  'CARTAO',
-  'CREDITO',
-  'AMORT',
-  'OLE',
-  'CFI',
-])
-
-function isGenericToken(token: string): boolean {
-  const upper = token.toUpperCase()
-  if (!upper) return true
-  if (GENERIC_TOKENS.has(upper)) return true
-  if (/^EMP\d*$/.test(upper)) return true
-  if (/^EMPR?\d*$/.test(upper)) return true
-  if (/^\d+$/.test(upper)) return true
-  return false
-}
-
-function normalizeDynamicBankLabel(token: string): string {
-  const upper = token.toUpperCase().replace(/[^A-Z0-9]/g, '')
-  if (!upper) return ''
-  if (upper === 'SAF') return 'Safra'
-  if (upper.length <= 4) return upper
-  return `${upper[0]}${upper.slice(1).toLowerCase()}`
-}
-
-function inferInstitution(line: ConsignadoLineDetail): string {
-  const descricao =
-    line.descricao_raw?.trim() ||
-    line.descricao_canonica?.trim() ||
-    line.descricao?.trim() ||
-    ''
-  const source = `${descricao} ${line.rubrica ?? ''}`.toUpperCase()
-  for (const matcher of BANK_MATCHERS) {
-    if (matcher.patterns.some((pattern) => pattern.test(source))) {
-      return matcher.label
-    }
-  }
-
-  const bancoMatch = source.match(/\b(?:BCO|BANCO)\s+([A-Z0-9]{2,})\b/)
-  if (bancoMatch?.[1] && !isGenericToken(bancoMatch[1])) {
-    const normalized = normalizeDynamicBankLabel(bancoMatch[1])
-    if (normalized) {
-      return `Banco ${normalized}`
-    }
-  }
-
-  const dynamicTokens = Array.from(source.matchAll(/(?:^|[\s\-\/])([A-Z0-9]{2,})\b/g))
-    .map((match) => match[1])
-    .filter((token) => token && !isGenericToken(token))
-  if (dynamicTokens.length > 0) {
-    const normalized = normalizeDynamicBankLabel(dynamicTokens[0] ?? '')
-    if (normalized) {
-      return `Banco ${normalized}`
-    }
-  }
-
-  return 'Contracheque (sem banco identificado)'
 }
 
 function getRateColor(rate: number | null): string {

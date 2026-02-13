@@ -1,5 +1,23 @@
 @import "tailwindcss";
 
+@theme {
+  --color-pdf-dark-blue: #1B2A4A;
+  --color-pdf-medium-blue: #2C4A7C;
+  --color-pdf-light-blue: #E8EFF8;
+  --color-pdf-accent-green: #1A8754;
+  --color-pdf-light-green: #E6F4ED;
+  --color-pdf-accent-red: #C0392B;
+  --color-pdf-warm-gray: #F7F8FA;
+  --color-pdf-medium-gray: #6C757D;
+  --color-pdf-border-gray: #DEE2E6;
+  --color-pdf-text-dark: #212529;
+  --color-pdf-text-secondary: #495057;
+  --color-pdf-highlight-yellow: #FFF8E1;
+  --color-pdf-highlight-yellow-border: #FFD54F;
+  --color-pdf-orange-accent: #E67E22;
+  --color-pdf-light-red: #FDEDEC;
+}
+
 @layer base {
   :root {
     --font-inter: 'Inter', system-ui, sans-serif;

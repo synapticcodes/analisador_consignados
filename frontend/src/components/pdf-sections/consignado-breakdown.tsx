@@ -1,4 +1,13 @@
 import { formatCurrency, type ConsignadoLineDetail } from '@/types/api'
+import {
+  parsePrazo,
+  computeReducedInstallment,
+  buildConsolidatedSummary,
+  type ConsolidatedSummary,
+} from './pdf-utils'
+
+// Re-export for backward compatibility
+export { parsePrazo, computeReducedInstallment, buildConsolidatedSummary, type ConsolidatedSummary }
 
 type ConsignadoBreakdownProps = {
   lines: ConsignadoLineDetail[]
@@ -9,8 +18,6 @@ type ConsignadoBreakdownProps = {
   summaryLines?: ConsignadoLineDetail[]
 }
 
-const REDUCED_PERCENT = 25
-
 function compactLineLabel(line: ConsignadoLineDetail, maxLength = 96): string {
   const descricao =
     line.descricao_raw?.trim() ||
@@ -20,71 +27,6 @@ function compactLineLabel(line: ConsignadoLineDetail, maxLength = 96): string {
   const base = `${descricao} · Rub ${line.rubrica ?? '--'}`
   if (base.length <= maxLength) return base
   return `${base.slice(0, Math.max(0, maxLength - 1))}…`
-}
-
-function parsePrazo(line: ConsignadoLineDetail): number | null {
-  if (typeof line.prazo === 'number' && Number.isFinite(line.prazo) && line.prazo > 0) {
-    return Math.floor(line.prazo)
-  }
-
-  if (line.rubrica) {
-    const trimmed = line.rubrica.trim()
-    if (/^\d{2,3}$/.test(trimmed)) {
-      const parsed = parseInt(trimmed, 10)
-      if (parsed > 0 && parsed <= 120) return parsed
-    }
-  }
-
-  return null
-}
-
-function computeReducedInstallment(parcelaCent: number): number {
-  return Math.floor((parcelaCent * REDUCED_PERCENT) / 100)
-}
-
-type ConsolidatedSummary = {
-  totalAtualFinalCent: number
-  totalComReducaoFinalCent: number
-  economiaTotalFinalCent: number
-  totalParcelasMensaisAtuaisCent: number
-  totalParcelasMensaisReducaoCent: number
-  economiaMensalParcelasCent: number
-  linhasSemPrazo: number
-}
-
-function buildConsolidatedSummary(lines: ConsignadoLineDetail[]): ConsolidatedSummary {
-  let totalAtualFinalCent = 0
-  let totalComReducaoFinalCent = 0
-  let totalParcelasMensaisAtuaisCent = 0
-  let totalParcelasMensaisReducaoCent = 0
-  let linhasSemPrazo = 0
-
-  for (const line of lines) {
-    const parcelaAtualCent = line.valor_cent
-    const parcelaReducaoCent = computeReducedInstallment(parcelaAtualCent)
-    totalParcelasMensaisAtuaisCent += parcelaAtualCent
-    totalParcelasMensaisReducaoCent += parcelaReducaoCent
-
-    const prazo = parsePrazo(line)
-    if (!prazo) {
-      linhasSemPrazo += 1
-      continue
-    }
-
-    totalAtualFinalCent += parcelaAtualCent * prazo
-    totalComReducaoFinalCent += parcelaReducaoCent * prazo
-  }
-
-  return {
-    totalAtualFinalCent,
-    totalComReducaoFinalCent,
-    economiaTotalFinalCent: totalAtualFinalCent - totalComReducaoFinalCent,
-    totalParcelasMensaisAtuaisCent,
-    totalParcelasMensaisReducaoCent,
-    economiaMensalParcelasCent:
-      totalParcelasMensaisAtuaisCent - totalParcelasMensaisReducaoCent,
-    linhasSemPrazo,
-  }
 }
 
 function ConsolidatedSummaryBlock({ consolidatedSummary }: { consolidatedSummary: ConsolidatedSummary }) {
