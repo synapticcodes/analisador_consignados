@@ -71,6 +71,49 @@ describe('ResultSnapshot', () => {
     expect(screen.getAllByText('R$ --').length).toBeGreaterThan(0)
   })
 
+  it('troca para contexto de benefício quando salário não se aplica no extrato INSS', () => {
+    render(
+      <ResultSnapshot
+        result={buildResult({
+          salario_bruto_cent: 0,
+          salario_liquido_cent: 0,
+          total_descontos_cent: 0,
+          divida_mensal_cent: 0,
+          divida_mensal_reduzida_cent: 0,
+          divida_total_consignada_cent: 752383,
+          inss_margin: {
+            base_calculo_cent: 162100,
+            max_comprometimento_cent: 72945,
+            total_comprometido_cent: 61135,
+            margem_emprestimo_cent: 3705,
+            margem_rmc_cent: 0,
+            margem_rcc_cent: 8105,
+            cet_mensal: null,
+            cet_anual: null,
+            rmc_banco: null,
+            rmc_limite_cent: null,
+            rmc_reservado_cent: null,
+            evidence: null,
+          },
+        })}
+        dateLabel="06/02/2026"
+      />
+    )
+
+    expect(screen.getByText('Benefício bruto')).toBeInTheDocument()
+    expect(screen.getByText('Benefício líquido')).toBeInTheDocument()
+    expect(screen.getByText('Desconto mensal atual no benefício')).toBeInTheDocument()
+    expect(screen.getByText('Desconto mensal no benefício')).toBeInTheDocument()
+    expect(screen.getByText('Novo benefício líquido estimado')).toBeInTheDocument()
+    expect(screen.getAllByText((content) => content.includes('1.621,00')).length).toBeGreaterThan(0)
+    expect(screen.getAllByText((content) => content.includes('1.009,65')).length).toBeGreaterThan(0)
+    expect(screen.getAllByText((content) => content.includes('7.523,83')).length).toBeGreaterThan(0)
+    expect(screen.getAllByText((content) => content.includes('611,35')).length).toBeGreaterThan(0)
+    expect(screen.getAllByText((content) => content.includes('152,83')).length).toBeGreaterThan(0)
+    expect(screen.queryByText('Salário bruto')).not.toBeInTheDocument()
+    expect(screen.queryByText('Salário líquido')).not.toBeInTheDocument()
+  })
+
   it('renderiza apenas páginas 1 e 4 quando não há dados de páginas condicionais', () => {
     render(
       <ResultSnapshot
