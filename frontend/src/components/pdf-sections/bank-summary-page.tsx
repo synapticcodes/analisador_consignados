@@ -16,6 +16,18 @@ export function BankSummaryPage({ bankGroups, consolidatedSummary }: BankSummary
     consolidatedSummary.totalAtualFinalCent > 0 ||
     consolidatedSummary.totalComReducaoFinalCent > 0 ||
     consolidatedSummary.economiaTotalFinalCent > 0
+  const mediaPonderadaMeses =
+    consolidatedSummary.economiaMensalParcelasCent > 0
+      ? consolidatedSummary.economiaTotalFinalCent / consolidatedSummary.economiaMensalParcelasCent
+      : null
+  const mediaPonderadaMesesLabel = (() => {
+    if (mediaPonderadaMeses === null || !Number.isFinite(mediaPonderadaMeses)) return 'N/D'
+    const rounded = Math.round(mediaPonderadaMeses * 10) / 10
+    if (Math.abs(rounded - Math.round(rounded)) < 0.05) {
+      return `${Math.round(rounded)}`
+    }
+    return rounded.toFixed(1).replace('.', ',')
+  })()
 
   return (
     <section className="flex h-full flex-col" style={{ color: PDF_COLORS.textDark }}>
@@ -143,55 +155,85 @@ export function BankSummaryPage({ bankGroups, consolidatedSummary }: BankSummary
 
       {/* 3 summary boxes */}
       {hasProjectedTotals ? (
-        <div className="mt-4 grid grid-cols-3 gap-3">
-          <div
-            className="rounded-sm px-3 py-2.5"
-            style={{
-              backgroundColor: PDF_COLORS.warmGray,
-              border: `1px solid ${PDF_COLORS.borderGray}`,
-            }}
-          >
-            <p
-              className="text-[9px] font-semibold uppercase tracking-wide"
-              style={{ color: PDF_COLORS.mediumGray }}
+        <div className="mt-4 space-y-2">
+          <div className="grid grid-cols-3 gap-3">
+            <div
+              className="rounded-sm px-3 py-2.5"
+              style={{
+                backgroundColor: PDF_COLORS.warmGray,
+                border: `1px solid ${PDF_COLORS.borderGray}`,
+              }}
             >
-              Total mantendo contratos
-            </p>
-            <p className="mt-1 text-[18px] font-bold" style={{ color: PDF_COLORS.accentRed }}>
-              {formatCurrency(consolidatedSummary.totalAtualFinalCent)}
-            </p>
+              <p
+                className="text-[9px] font-semibold uppercase tracking-wide"
+                style={{ color: PDF_COLORS.mediumGray }}
+              >
+                Total mantendo contratos
+              </p>
+              <p className="mt-1 text-[18px] font-bold" style={{ color: PDF_COLORS.accentRed }}>
+                {formatCurrency(consolidatedSummary.totalAtualFinalCent)}
+              </p>
+            </div>
+            <div
+              className="rounded-sm px-3 py-2.5"
+              style={{
+                backgroundColor: PDF_COLORS.warmGray,
+                border: `1px solid ${PDF_COLORS.borderGray}`,
+              }}
+            >
+              <p
+                className="text-[9px] font-semibold uppercase tracking-wide"
+                style={{ color: PDF_COLORS.mediumGray }}
+              >
+                Total com nossos serviços
+              </p>
+              <p className="mt-1 text-[18px] font-bold" style={{ color: PDF_COLORS.accentGreen }}>
+                {formatCurrency(consolidatedSummary.totalComReducaoFinalCent)}
+              </p>
+            </div>
+            <div
+              className="rounded-sm px-3 py-2.5"
+              style={{
+                backgroundColor: PDF_COLORS.warmGray,
+                border: `1px solid ${PDF_COLORS.borderGray}`,
+              }}
+            >
+              <p
+                className="text-[9px] font-semibold uppercase tracking-wide"
+                style={{ color: PDF_COLORS.mediumGray }}
+              >
+                Economia total projetada
+              </p>
+              <p className="mt-1 text-[18px] font-bold" style={{ color: PDF_COLORS.accentGreen }}>
+                {formatCurrency(consolidatedSummary.economiaTotalFinalCent)}
+              </p>
+            </div>
           </div>
           <div
-            className="rounded-sm px-3 py-2.5"
+            className="rounded-sm px-3 py-2 text-[9px] leading-relaxed"
             style={{
-              backgroundColor: PDF_COLORS.warmGray,
+              backgroundColor: PDF_COLORS.lightBlue,
               border: `1px solid ${PDF_COLORS.borderGray}`,
+              color: PDF_COLORS.textSecondary,
             }}
           >
-            <p
-              className="text-[9px] font-semibold uppercase tracking-wide"
-              style={{ color: PDF_COLORS.mediumGray }}
-            >
-              Total com nossos serviços
+            <p className="font-semibold" style={{ color: PDF_COLORS.textDark }}>
+              Como chegamos nesse valor:
             </p>
-            <p className="mt-1 text-[18px] font-bold" style={{ color: PDF_COLORS.accentGreen }}>
-              {formatCurrency(consolidatedSummary.totalComReducaoFinalCent)}
+            <p>
+              Seus {totalContratos} contratos somam {formatCurrency(totalParcelaAtualCent)}/mês em parcelas.
             </p>
-          </div>
-          <div
-            className="rounded-sm px-3 py-2.5"
-            style={{
-              backgroundColor: PDF_COLORS.warmGray,
-              border: `1px solid ${PDF_COLORS.borderGray}`,
-            }}
-          >
-            <p
-              className="text-[9px] font-semibold uppercase tracking-wide"
-              style={{ color: PDF_COLORS.mediumGray }}
-            >
-              Economia total projetada
+            <p>
+              Com a revisão judicial, a projeção é de {formatCurrency(totalNovaParcelaCent)}/mês.
             </p>
-            <p className="mt-1 text-[18px] font-bold" style={{ color: PDF_COLORS.accentGreen }}>
+            <p>
+              Isso representa uma economia de {formatCurrency(totalEconomiaCent)} por mês.
+            </p>
+            <p>
+              Multiplicando pela média ponderada de parcelas restantes dos seus contratos:
+            </p>
+            <p>
+              {formatCurrency(totalEconomiaCent)} x ~{mediaPonderadaMesesLabel} meses ={' '}
               {formatCurrency(consolidatedSummary.economiaTotalFinalCent)}
             </p>
           </div>
