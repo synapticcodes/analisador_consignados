@@ -5,16 +5,21 @@ import { type FinalResultResponse, formatCurrency } from '@/types/api'
 type LegacyResultSnapshotProps = {
   result: FinalResultResponse
   clientName?: string
+  clientCpf?: string
   dateLabel: string
 }
 
 const LegacyResultSnapshot = forwardRef<HTMLDivElement, LegacyResultSnapshotProps>(
-  ({ result, clientName, dateLabel }, ref) => {
+  ({ result, clientName, clientCpf, dateLabel }, ref) => {
     const normalizedName = clientName?.trim()
+    const normalizedCpf = clientCpf?.trim()
 
     const metaItems = []
     if (normalizedName) {
       metaItems.push(`Cliente: ${normalizedName}`)
+    }
+    if (normalizedCpf) {
+      metaItems.push(`CPF: ${normalizedCpf}`)
     }
     metaItems.push(`Data: ${dateLabel}`)
 

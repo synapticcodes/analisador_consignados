@@ -5,11 +5,18 @@ import { PDF_COLORS, type ConsolidatedSummary } from './pdf-utils'
 type CoverSummaryProps = {
   result: FinalResultResponse
   clientName?: string
-  dateLabel: string
+  clientCpf?: string
+  isExtratoOnlyContext?: boolean
   consolidatedSummary?: ConsolidatedSummary | null
 }
 
-export function CoverSummary({ result, clientName, dateLabel, consolidatedSummary }: CoverSummaryProps) {
+export function CoverSummary({
+  result,
+  clientName,
+  clientCpf,
+  isExtratoOnlyContext = false,
+  consolidatedSummary,
+}: CoverSummaryProps) {
   // ---- keep all original calculation logic unchanged ----
   const salarioBrutoCent = result.salario_bruto_cent
   const salarioLiquidoCent = result.salario_liquido_cent
@@ -122,15 +129,17 @@ export function CoverSummary({ result, clientName, dateLabel, consolidatedSummar
           className="text-[22px] font-bold leading-tight"
           style={{ color: PDF_COLORS.darkBlue }}
         >
-          Seu Diagn&oacute;stico Financeiro
+          Seu Diagnóstico Financeiro
         </h1>
         <p className="mt-1 text-[11px]" style={{ color: PDF_COLORS.mediumGray }}>
-          An&aacute;lise dos empr&eacute;stimos consignados identificados no seu contracheque
+          {isExtratoOnlyContext
+            ? 'Análise dos empréstimos consignados identificados no seu extrato INSS'
+            : 'Análise dos empréstimos consignados identificados no seu contracheque'}
         </p>
       </div>
 
       {/* Client identification box */}
-      {clientName && (
+      {(clientName || clientCpf) && (
         <div
           className="mb-2 flex items-center justify-between rounded-sm px-4 py-3"
           style={{
@@ -138,22 +147,36 @@ export function CoverSummary({ result, clientName, dateLabel, consolidatedSummar
             borderLeft: `4px solid ${PDF_COLORS.darkBlue}`,
           }}
         >
-          <p className="text-[12px]" style={{ color: PDF_COLORS.textDark }}>
-            <span className="font-semibold">Cliente:</span>{' '}
-            <span className="text-[14px] font-bold" style={{ color: PDF_COLORS.darkBlue }}>
-              {clientName.toUpperCase()}
-            </span>
-          </p>
+          <div className="space-y-0.5 text-[12px]" style={{ color: PDF_COLORS.textDark }}>
+            {clientName && (
+              <p>
+                <span className="font-semibold">Cliente:</span>{' '}
+                <span className="text-[14px] font-bold" style={{ color: PDF_COLORS.darkBlue }}>
+                  {clientName.toUpperCase()}
+                </span>
+              </p>
+            )}
+            {clientCpf && (
+              <p>
+                <span className="font-semibold">CPF:</span>{' '}
+                <span className="font-semibold" style={{ color: PDF_COLORS.darkBlue }}>
+                  {clientCpf}
+                </span>
+              </p>
+            )}
+          </div>
         </div>
       )}
 
       {/* Yellow callout */}
       <YellowCalloutBox title="O que este documento mostra">
         <p>
-          Este relat&oacute;rio apresenta uma compara&ccedil;&atilde;o entre a situa&ccedil;&atilde;o
-          atual dos seus empr&eacute;stimos consignados e uma proje&ccedil;&atilde;o de como ficariam
-          ap&oacute;s a renegocia&ccedil;&atilde;o. Os valores projetados s&atilde;o estimativas
-          baseadas em redu&ccedil;&otilde;es j&aacute; obtidas com perfis semelhantes.
+          Este relatório apresenta uma comparação entre a situação
+          atual dos seus empréstimos consignados e uma projeção de como ficariam
+          após a renegociação.{' '}
+          {isExtratoOnlyContext
+            ? 'Os valores projetados consideram os dados identificados no extrato INSS enviado.'
+            : 'Os valores projetados são estimativas baseadas em reduções já obtidas com perfis semelhantes.'}
         </p>
       </YellowCalloutBox>
 
@@ -162,9 +185,9 @@ export function CoverSummary({ result, clientName, dateLabel, consolidatedSummar
         <table className="w-full border-collapse text-[10px]">
           <thead>
             <tr style={{ backgroundColor: PDF_COLORS.darkBlue, color: PDF_COLORS.white }}>
-              <th className="px-3 py-2 text-left font-semibold">&nbsp;</th>
-              <th className="px-3 py-2 text-right font-semibold">SITUA&Ccedil;&Atilde;O ATUAL</th>
-              <th className="px-3 py-2 text-right font-semibold">PROJE&Ccedil;&Atilde;O RENEGOCIADA</th>
+              <th className="px-3 py-2 text-left font-semibold"> </th>
+              <th className="px-3 py-2 text-right font-semibold">SITUAÇÃO ATUAL</th>
+              <th className="px-3 py-2 text-right font-semibold">PROJEÇÃO RENEGOCIADA</th>
             </tr>
           </thead>
           <tbody>
@@ -236,17 +259,17 @@ export function CoverSummary({ result, clientName, dateLabel, consolidatedSummar
       <div className="mt-3">
         <GrayBox title="Como funciona a renegociação">
           <p className="mb-1">
-            A renegocia&ccedil;&atilde;o consiste em revisar judicialmente os contratos de
-            empr&eacute;stimo consignado, buscando a redu&ccedil;&atilde;o das parcelas mensais
+            A renegociação consiste em revisar judicialmente os contratos de
+            empréstimo consignado, buscando a redução das parcelas mensais
             descontadas em folha.
           </p>
           <p className="mb-1">
-            Com base em decis&otilde;es judiciais favor&aacute;veis, &eacute; poss&iacute;vel reduzir
+            Com base em decisões judiciais favoráveis, é possível reduzir
             o comprometimento mensal de cada contrato, mantendo os mesmos prazos e condições gerais.
           </p>
           <p>
-            Os valores projetados neste relat&oacute;rio consideram uma redu&ccedil;&atilde;o
-            estimada de 75% no valor de cada parcela, refletindo o hist&oacute;rico de
+            Os valores projetados neste relatório consideram uma redução
+            estimada de 75% no valor de cada parcela, refletindo o histórico de
             resultados obtidos pela Credilly em casos semelhantes.
           </p>
         </GrayBox>
@@ -254,9 +277,9 @@ export function CoverSummary({ result, clientName, dateLabel, consolidatedSummar
 
       {/* Footer note */}
       <p className="mt-auto pt-2 text-[8px]" style={{ color: PDF_COLORS.mediumGray }}>
-        * Os valores apresentados s&atilde;o baseados nos dados extra&iacute;dos do contracheque
-        e/ou extrato de empr&eacute;stimo consignado fornecidos. Condi&ccedil;&otilde;es reais
-        podem variar conforme credor e perfil.
+        {isExtratoOnlyContext
+          ? '* Os valores apresentados são baseados nos dados extraídos do extrato INSS fornecido. Condições reais podem variar conforme credor e perfil.'
+          : '* Os valores apresentados são baseados nos dados extraídos do contracheque e/ou extrato de empréstimo consignado fornecidos. Condições reais podem variar conforme credor e perfil.'}
       </p>
     </section>
   )

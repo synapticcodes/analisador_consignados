@@ -12,6 +12,10 @@ export function BankSummaryPage({ bankGroups, consolidatedSummary }: BankSummary
   const totalNovaParcelaCent = bankGroups.reduce((s, g) => s + g.novaParcelaCent, 0)
   const totalEconomiaCent = bankGroups.reduce((s, g) => s + g.economiaCent, 0)
   const totalContratos = bankGroups.reduce((s, g) => s + g.contratos, 0)
+  const hasProjectedTotals =
+    consolidatedSummary.totalAtualFinalCent > 0 ||
+    consolidatedSummary.totalComReducaoFinalCent > 0 ||
+    consolidatedSummary.economiaTotalFinalCent > 0
 
   return (
     <section className="flex h-full flex-col" style={{ color: PDF_COLORS.textDark }}>
@@ -19,7 +23,7 @@ export function BankSummaryPage({ bankGroups, consolidatedSummary }: BankSummary
         Resumo por Banco
       </h2>
       <p className="mt-0.5 text-[10px]" style={{ color: PDF_COLORS.mediumGray }}>
-        Vis&atilde;o consolidada dos empr&eacute;stimos agrupados por institui&ccedil;&atilde;o financeira.
+        Visão consolidada dos empréstimos agrupados por instituição financeira.
       </p>
 
       {/* Bank table */}
@@ -31,8 +35,8 @@ export function BankSummaryPage({ bankGroups, consolidatedSummary }: BankSummary
               <th className="px-2 py-1.5 text-center font-semibold">Contratos</th>
               <th className="px-2 py-1.5 text-right font-semibold">Parcela atual</th>
               <th className="px-2 py-1.5 text-right font-semibold">Nova parcela</th>
-              <th className="px-2 py-1.5 text-right font-semibold">Economia/m&ecirc;s</th>
-              <th className="px-2 py-1.5 text-right font-semibold">% sal&aacute;rio</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Economia/mês</th>
+              <th className="px-2 py-1.5 text-right font-semibold">% salário</th>
             </tr>
           </thead>
           <tbody>
@@ -115,7 +119,7 @@ export function BankSummaryPage({ bankGroups, consolidatedSummary }: BankSummary
                 className="px-2 py-1.5 text-right"
                 style={{ borderBottom: `1px solid ${PDF_COLORS.borderGray}` }}
               >
-                &mdash;
+                -
               </td>
             </tr>
           </tbody>
@@ -138,59 +142,72 @@ export function BankSummaryPage({ bankGroups, consolidatedSummary }: BankSummary
       </div>
 
       {/* 3 summary boxes */}
-      <div className="mt-4 grid grid-cols-3 gap-3">
+      {hasProjectedTotals ? (
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          <div
+            className="rounded-sm px-3 py-2.5"
+            style={{
+              backgroundColor: PDF_COLORS.warmGray,
+              border: `1px solid ${PDF_COLORS.borderGray}`,
+            }}
+          >
+            <p
+              className="text-[9px] font-semibold uppercase tracking-wide"
+              style={{ color: PDF_COLORS.mediumGray }}
+            >
+              Total mantendo contratos
+            </p>
+            <p className="mt-1 text-[18px] font-bold" style={{ color: PDF_COLORS.accentRed }}>
+              {formatCurrency(consolidatedSummary.totalAtualFinalCent)}
+            </p>
+          </div>
+          <div
+            className="rounded-sm px-3 py-2.5"
+            style={{
+              backgroundColor: PDF_COLORS.warmGray,
+              border: `1px solid ${PDF_COLORS.borderGray}`,
+            }}
+          >
+            <p
+              className="text-[9px] font-semibold uppercase tracking-wide"
+              style={{ color: PDF_COLORS.mediumGray }}
+            >
+              Total com nossos serviços
+            </p>
+            <p className="mt-1 text-[18px] font-bold" style={{ color: PDF_COLORS.accentGreen }}>
+              {formatCurrency(consolidatedSummary.totalComReducaoFinalCent)}
+            </p>
+          </div>
+          <div
+            className="rounded-sm px-3 py-2.5"
+            style={{
+              backgroundColor: PDF_COLORS.warmGray,
+              border: `1px solid ${PDF_COLORS.borderGray}`,
+            }}
+          >
+            <p
+              className="text-[9px] font-semibold uppercase tracking-wide"
+              style={{ color: PDF_COLORS.mediumGray }}
+            >
+              Economia total projetada
+            </p>
+            <p className="mt-1 text-[18px] font-bold" style={{ color: PDF_COLORS.accentGreen }}>
+              {formatCurrency(consolidatedSummary.economiaTotalFinalCent)}
+            </p>
+          </div>
+        </div>
+      ) : (
         <div
-          className="rounded-sm px-3 py-2.5"
+          className="mt-4 rounded-sm px-3 py-2.5 text-[9px]"
           style={{
             backgroundColor: PDF_COLORS.warmGray,
             border: `1px solid ${PDF_COLORS.borderGray}`,
+            color: PDF_COLORS.textSecondary,
           }}
         >
-          <p
-            className="text-[9px] font-semibold uppercase tracking-wide"
-            style={{ color: PDF_COLORS.mediumGray }}
-          >
-            Total mantendo contratos
-          </p>
-          <p className="mt-1 text-[18px] font-bold" style={{ color: PDF_COLORS.accentRed }}>
-            {formatCurrency(consolidatedSummary.totalAtualFinalCent)}
-          </p>
+          Totais finais não exibidos porque o documento não informa prazo de parcelas.
         </div>
-        <div
-          className="rounded-sm px-3 py-2.5"
-          style={{
-            backgroundColor: PDF_COLORS.warmGray,
-            border: `1px solid ${PDF_COLORS.borderGray}`,
-          }}
-        >
-          <p
-            className="text-[9px] font-semibold uppercase tracking-wide"
-            style={{ color: PDF_COLORS.mediumGray }}
-          >
-            Total com nossos servi&ccedil;os
-          </p>
-          <p className="mt-1 text-[18px] font-bold" style={{ color: PDF_COLORS.accentGreen }}>
-            {formatCurrency(consolidatedSummary.totalComReducaoFinalCent)}
-          </p>
-        </div>
-        <div
-          className="rounded-sm px-3 py-2.5"
-          style={{
-            backgroundColor: PDF_COLORS.warmGray,
-            border: `1px solid ${PDF_COLORS.borderGray}`,
-          }}
-        >
-          <p
-            className="text-[9px] font-semibold uppercase tracking-wide"
-            style={{ color: PDF_COLORS.mediumGray }}
-          >
-            Economia total projetada
-          </p>
-          <p className="mt-1 text-[18px] font-bold" style={{ color: PDF_COLORS.accentGreen }}>
-            {formatCurrency(consolidatedSummary.economiaTotalFinalCent)}
-          </p>
-        </div>
-      </div>
+      )}
 
       {consolidatedSummary.linhasSemPrazo > 0 && (
         <p className="mt-2 text-[8px]" style={{ color: PDF_COLORS.mediumGray }}>

@@ -8,10 +8,16 @@ import { PDF_COLORS } from './pdf-utils'
 export function PdfHeaderBar({
   dateLabel,
   clientName,
+  clientCpf,
 }: {
   dateLabel: string
   clientName?: string
+  clientCpf?: string
 }) {
+  const headerMeta = [clientName, clientCpf ? `CPF: ${clientCpf}` : null, `Data: ${dateLabel}`]
+    .filter(Boolean)
+    .join('  |  ')
+
   return (
     <div
       className="flex items-center justify-between px-5 py-2.5"
@@ -21,10 +27,10 @@ export function PdfHeaderBar({
         className="text-[10px] font-semibold uppercase tracking-widest"
         style={{ color: PDF_COLORS.white }}
       >
-        Diagn&oacute;stico Financeiro &nbsp;|&nbsp; Documento Confidencial
+        Diagnóstico Financeiro  |  Documento Confidencial
       </span>
       <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.7)' }}>
-        {clientName ? `${clientName}  |  ` : ''}Data: {dateLabel}
+        {headerMeta}
       </span>
     </div>
   )
@@ -51,12 +57,12 @@ export function PdfPageFooter({
         style={{ color: PDF_COLORS.mediumGray }}
       >
         <span className="max-w-[70%] leading-tight">
-          Este documento &eacute; de uso exclusivo do destinat&aacute;rio e cont&eacute;m
-          informa&ccedil;&otilde;es confidenciais. A Credilly n&atilde;o se responsabiliza
-          por decis&otilde;es tomadas exclusivamente com base neste relat&oacute;rio.
+          Este documento é de uso exclusivo do destinatário e contém
+          informações confidenciais. A Credilly não se responsabiliza
+          por decisões tomadas exclusivamente com base neste relatório.
         </span>
         <span>
-          P&aacute;gina {pageNumber} de {totalPages}
+          Página {pageNumber} de {totalPages}
         </span>
       </div>
     </footer>
@@ -72,12 +78,14 @@ export function PdfPageWrapper({
   totalPages = 4,
   dateLabel = '',
   clientName,
+  clientCpf,
   children,
 }: {
   pageNumber: number
   totalPages?: number
   dateLabel?: string
   clientName?: string
+  clientCpf?: string
   children: ReactNode
 }) {
   return (
@@ -86,7 +94,7 @@ export function PdfPageWrapper({
       style={{ width: 794, height: 1123, backgroundColor: PDF_COLORS.white }}
       className="mb-4 flex flex-col overflow-hidden"
     >
-      <PdfHeaderBar dateLabel={dateLabel} clientName={clientName} />
+      <PdfHeaderBar dateLabel={dateLabel} clientName={clientName} clientCpf={clientCpf} />
       <div className="min-h-0 flex-1 overflow-hidden px-8 py-5">{children}</div>
       <PdfPageFooter pageNumber={pageNumber} totalPages={totalPages} />
     </div>
@@ -237,7 +245,7 @@ export function HorizontalCommitmentBar({
       <div className="mb-0.5 flex items-center justify-between text-[10px]">
         <span className="font-medium" style={{ color: PDF_COLORS.textDark }}>{label}</span>
         <span style={{ color: PDF_COLORS.textSecondary }}>
-          {formattedPercent} &mdash; {formattedValue}/m&ecirc;s
+          {formattedPercent} - {formattedValue}/mês
         </span>
       </div>
       <div

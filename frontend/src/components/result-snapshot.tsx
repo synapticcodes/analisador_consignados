@@ -15,6 +15,7 @@ import { type FinalResultResponse } from '@/types/api'
 type ResultSnapshotProps = {
   result: FinalResultResponse
   clientName?: string
+  clientCpf?: string
   dateLabel: string
   whatsappCtaText?: string
   enablePhase2?: boolean
@@ -41,6 +42,7 @@ const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
   ({
     result,
     clientName,
+    clientCpf,
     dateLabel,
   }, ref) => {
     // Filter out margin card contracts for consignado-based calculations
@@ -51,6 +53,9 @@ const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
       }) ?? []
 
     const consignadoLines = result.consignado_lines ?? []
+    const isExtratoOnlyContext =
+      consignadoLines.length === 0 &&
+      ((activeContracts.length > 0) || result.inss_margin !== null)
 
     // Determine salary base for percentage calculations
     const isBenefitContext =
@@ -71,28 +76,53 @@ const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
 
     return (
       <div ref={ref}>
-        <PdfPageWrapper pageNumber={1} totalPages={TOTAL_PAGES} dateLabel={dateLabel} clientName={clientName}>
+        <PdfPageWrapper
+          pageNumber={1}
+          totalPages={TOTAL_PAGES}
+          dateLabel={dateLabel}
+          clientName={clientName}
+          clientCpf={clientCpf}
+        >
           <CoverSummary
             result={result}
             clientName={clientName}
-            dateLabel={dateLabel}
+            clientCpf={clientCpf}
+            isExtratoOnlyContext={isExtratoOnlyContext}
             consolidatedSummary={consignadoLines.length > 0 ? consolidatedSummary : null}
           />
         </PdfPageWrapper>
 
-        <PdfPageWrapper pageNumber={2} totalPages={TOTAL_PAGES} dateLabel={dateLabel} clientName={clientName}>
+        <PdfPageWrapper
+          pageNumber={2}
+          totalPages={TOTAL_PAGES}
+          dateLabel={dateLabel}
+          clientName={clientName}
+          clientCpf={clientCpf}
+        >
           <BankSummaryPage
             bankGroups={bankGroups}
             consolidatedSummary={consolidatedSummary}
           />
         </PdfPageWrapper>
 
-        <PdfPageWrapper pageNumber={3} totalPages={TOTAL_PAGES} dateLabel={dateLabel} clientName={clientName}>
-          <DetailedBreakdownPage loans={detailedLoans} />
+        <PdfPageWrapper
+          pageNumber={3}
+          totalPages={TOTAL_PAGES}
+          dateLabel={dateLabel}
+          clientName={clientName}
+          clientCpf={clientCpf}
+        >
+          <DetailedBreakdownPage loans={detailedLoans} isExtratoOnlyContext={isExtratoOnlyContext} />
         </PdfPageWrapper>
 
-        <PdfPageWrapper pageNumber={4} totalPages={TOTAL_PAGES} dateLabel={dateLabel} clientName={clientName}>
-          <NextStepsPage />
+        <PdfPageWrapper
+          pageNumber={4}
+          totalPages={TOTAL_PAGES}
+          dateLabel={dateLabel}
+          clientName={clientName}
+          clientCpf={clientCpf}
+        >
+          <NextStepsPage isExtratoOnlyContext={isExtratoOnlyContext} />
         </PdfPageWrapper>
       </div>
     )

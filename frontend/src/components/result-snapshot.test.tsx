@@ -285,4 +285,83 @@ describe('ResultSnapshot', () => {
     expect(screen.getAllByText('Banco Extrato 1').length).toBeGreaterThan(0)
     expect(screen.queryByText('Cartão RMC')).not.toBeInTheDocument()
   })
+
+  it('troca textos de contracheque para extrato INSS quando o relatório é extrato-only', () => {
+    render(
+      <ResultSnapshot
+        result={buildResult({
+          consignado_lines: [],
+          inss_margin: {
+            base_calculo_cent: 151800,
+            max_comprometimento_cent: 68310,
+            total_comprometido_cent: 61135,
+            margem_emprestimo_cent: 0,
+            margem_rmc_cent: 0,
+            margem_rcc_cent: 0,
+            cet_mensal: null,
+            cet_anual: null,
+            rmc_banco: 'BMG',
+            rmc_limite_cent: 138700,
+            rmc_reservado_cent: 7590,
+            evidence: null,
+          },
+          loan_contracts: [
+            {
+              id: 'c1',
+              lender_name: 'Banco BMG',
+              contract_id: '1',
+              parcela_cent: 12000,
+              parcelas_restantes: 10,
+              valor_total_cent: 120000,
+              taxa_juros: null,
+              status: 'ATIVO',
+              cet_mensal: null,
+              cet_anual: null,
+              iof_cent: null,
+              valor_emprestado_cent: null,
+            },
+          ],
+        })}
+        dateLabel="06/02/2026"
+      />
+    )
+
+    expect(screen.getAllByText(/extrato INSS/i).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/identificados no seu contracheque/i)).not.toBeInTheDocument()
+  })
+
+  it('oculta cards de totais finais na página 2 quando nenhuma linha tem prazo', () => {
+    render(
+      <ResultSnapshot
+        result={buildResult({
+          consignado_lines: [
+            {
+              descricao: 'FUPRES',
+              descricao_raw: 'FUPRES',
+              descricao_canonica: 'FUPRES',
+              rubrica: '9014',
+              prazo: null,
+              valor_cent: 408366,
+            },
+            {
+              descricao: 'PANAMERICANO-EMP05',
+              descricao_raw: 'PANAMERICANO-EMP05',
+              descricao_canonica: 'PANAMERICANO',
+              rubrica: '5933',
+              prazo: null,
+              valor_cent: 8696,
+            },
+          ],
+        })}
+        dateLabel="06/02/2026"
+      />
+    )
+
+    expect(screen.queryByText('Total mantendo contratos')).not.toBeInTheDocument()
+    expect(screen.queryByText('Total com nossos serviços')).not.toBeInTheDocument()
+    expect(screen.queryByText('Economia total projetada')).not.toBeInTheDocument()
+    expect(
+      screen.getByText(/Totais finais n[ãa]o exibidos porque o documento n[ãa]o informa prazo/)
+    ).toBeInTheDocument()
+  })
 })

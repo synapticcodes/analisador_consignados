@@ -146,6 +146,7 @@ export default function JobResultPage() {
   const [result, setResult] = useState<FinalResultResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [clientName, setClientName] = useState('')
+  const [clientCpf, setClientCpf] = useState('')
   const [exporting, setExporting] = useState<'pdf' | 'png' | null>(null)
   const snapshotRef = useRef<HTMLDivElement | null>(null)
   const legacySnapshotRef = useRef<HTMLDivElement | null>(null)
@@ -161,6 +162,14 @@ export default function JobResultPage() {
     process.env.NEXT_PUBLIC_FEATURE_PDF_V2_PHASE2_ENABLED !== 'false'
   const featurePdfV2Phase3Enabled =
     process.env.NEXT_PUBLIC_FEATURE_PDF_V2_PHASE3_ENABLED !== 'false'
+
+  const formatCpfInput = (value: string) => {
+    const digits = value.replace(/\D/g, '').slice(0, 11)
+    if (digits.length <= 3) return digits
+    if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`
+    if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`
+    return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`
+  }
 
   useEffect(() => {
     if (!jobId) {
@@ -411,6 +420,18 @@ export default function JobResultPage() {
                   value={clientName}
                   onChange={(event) => setClientName(event.target.value)}
                   placeholder="Ex.: Maria da Silva"
+                  className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700">
+                  CPF (opcional)
+                </label>
+                <input
+                  value={clientCpf}
+                  onChange={(event) => setClientCpf(formatCpfInput(event.target.value))}
+                  placeholder="111.111.111-11"
+                  inputMode="numeric"
                   className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
                 />
               </div>
@@ -719,6 +740,7 @@ export default function JobResultPage() {
           ref={snapshotRef}
           result={result}
           clientName={clientName}
+          clientCpf={clientCpf}
           dateLabel={dateLabel}
           whatsappCtaText="WhatsApp: (11) 99999-9999"
           enablePhase2={featurePdfV2Phase2Enabled}
@@ -733,6 +755,7 @@ export default function JobResultPage() {
           ref={legacySnapshotRef}
           result={result}
           clientName={clientName}
+          clientCpf={clientCpf}
           dateLabel={dateLabel}
         />
       </div>
