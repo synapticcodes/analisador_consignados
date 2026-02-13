@@ -14,6 +14,13 @@ export function DetailedBreakdownPage({
   const totalAtualCent = loans.reduce((s, l) => s + l.parcelaAtualCent, 0)
   const totalNovaCent = loans.reduce((s, l) => s + l.novaParcelaCent, 0)
   const totalReducaoCent = loans.reduce((s, l) => s + l.reducaoCent, 0)
+  const totalEconomiaContratoCent = loans.reduce(
+    (s, l) => s + (l.economiaTotalContratoCent ?? 0),
+    0
+  )
+  const hasEconomiaTotalContrato = loans.some(
+    (loan) => loan.economiaTotalContratoCent !== null
+  )
 
   return (
     <section className="flex h-full flex-col" style={{ color: PDF_COLORS.textDark }}>
@@ -51,6 +58,7 @@ export function DetailedBreakdownPage({
               <th className="px-1.5 py-1.5 text-right font-semibold">Redução</th>
               <th className="px-1.5 py-1.5 text-right font-semibold">Parcelas est.</th>
               <th className="px-1.5 py-1.5 text-right font-semibold">Saldo restante</th>
+              <th className="px-1.5 py-1.5 text-right font-semibold">Economia total</th>
             </tr>
           </thead>
           <tbody>
@@ -105,6 +113,14 @@ export function DetailedBreakdownPage({
                     ? formatCurrency(loan.saldoRestanteCent)
                     : 'N/D'}
                 </td>
+                <td
+                  className="px-1.5 py-1 text-right font-semibold"
+                  style={{ borderBottom: `1px solid ${PDF_COLORS.borderGray}`, color: PDF_COLORS.accentGreen }}
+                >
+                  {loan.economiaTotalContratoCent !== null
+                    ? formatCurrency(loan.economiaTotalContratoCent)
+                    : 'N/D'}
+                </td>
               </tr>
             ))}
             {/* Total row */}
@@ -151,9 +167,20 @@ export function DetailedBreakdownPage({
               >
                 -
               </td>
+              <td
+                className="px-1.5 py-1.5 text-right"
+                style={{ borderBottom: `1px solid ${PDF_COLORS.borderGray}`, color: PDF_COLORS.accentGreen }}
+              >
+                {hasEconomiaTotalContrato ? formatCurrency(totalEconomiaContratoCent) : '-'}
+              </td>
             </tr>
           </tbody>
         </table>
+        <p className="mt-1 text-[8px]" style={{ color: PDF_COLORS.mediumGray }}>
+          * Nova parcela calculada com redução de 75% sobre o valor atual. Resultados reais
+          podem variar dentro da faixa de 50% a 80% conforme decisões judiciais obtidas em
+          casos semelhantes.
+        </p>
       </div>
 
       {/* Gray transparency box */}

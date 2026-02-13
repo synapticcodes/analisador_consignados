@@ -60,6 +60,12 @@ describe('ResultSnapshot', () => {
     expect(screen.getByText(/Seu Diagn[óo]stico Financeiro/)).toBeInTheDocument()
     expect(screen.getByText(/Economia mensal estimada/)).toBeInTheDocument()
     expect(screen.getAllByText((content) => content.includes('540,00')).length).toBeGreaterThan(0)
+    expect(screen.getByText('+1.200')).toBeInTheDocument()
+    expect(screen.getByText('R$ 18M+')).toBeInTheDocument()
+    expect(screen.getByText('4 anos')).toBeInTheDocument()
+    expect(screen.getByText('92%')).toBeInTheDocument()
+    expect(screen.getByText(/Vou ser sincero: achei que era golpe\./)).toBeInTheDocument()
+    expect(screen.getByText(/— C\.L\., servidor público federal, Brasília\/DF/)).toBeInTheDocument()
   })
 
   it('mantém fallback de capa quando faltam dados para estimativa', () => {
@@ -112,6 +118,7 @@ describe('ResultSnapshot', () => {
     expect(screen.getAllByText((content) => content.includes('Benefício bruto')).length).toBeGreaterThan(0)
     expect(screen.getAllByText((content) => content.includes('Benefício líquido')).length).toBeGreaterThan(0)
     expect(screen.getAllByText((content) => content.includes('1.621,00')).length).toBeGreaterThan(0)
+    expect(screen.getAllByText((content) => content.includes('1.468,17')).length).toBeGreaterThan(0)
     expect(screen.queryByText('Salário bruto')).not.toBeInTheDocument()
   })
 
@@ -177,7 +184,11 @@ describe('ResultSnapshot', () => {
 
     expect(screen.getByText(/Pr[óo]ximos Passos/)).toBeInTheDocument()
     expect(screen.getByText(/Gloss[áa]rio/)).toBeInTheDocument()
+    expect(screen.getByText(/Caso real - como funciona na prática:/)).toBeInTheDocument()
+    expect(screen.getByText(/Dia 40 - Novas parcelas já refletidas no contracheque/)).toBeInTheDocument()
     expect(screen.getByText(/Credilly Solu[çc][õo]es Financeiras Ltda/)).toBeInTheDocument()
+    expect(screen.getByText('CNPJ: XX.XXX.XXX/0001-XX')).toBeInTheDocument()
+    expect(screen.getByText('E-mail: contato@credilly.com.br')).toBeInTheDocument()
   })
 
   it('header aparece em todas as páginas', () => {
@@ -328,6 +339,11 @@ describe('ResultSnapshot', () => {
 
     expect(screen.getAllByText(/extrato INSS/i).length).toBeGreaterThan(0)
     expect(screen.queryByText(/identificados no seu contracheque/i)).not.toBeInTheDocument()
+    expect(
+      screen.getByText(/Eu tinha 9 contratos de consignado e mal sobrava dinheiro pra viver\./)
+    ).toBeInTheDocument()
+    expect(screen.getByText(/— M\.S\., servidor aposentado, São Paulo\/SP/)).toBeInTheDocument()
+    expect(screen.queryByText(/— C\.L\., servidor público federal, Brasília\/DF/)).not.toBeInTheDocument()
   })
 
   it('oculta cards de totais finais na página 2 quando nenhuma linha tem prazo', () => {

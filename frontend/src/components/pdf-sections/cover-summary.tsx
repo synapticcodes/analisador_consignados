@@ -25,7 +25,6 @@ export function CoverSummary({
   const dividaMensalReduzidaCent = result.divida_mensal_reduzida_cent
   const baseCalculoCent = result.inss_margin?.base_calculo_cent ?? null
   const totalComprometidoCent = result.inss_margin?.total_comprometido_cent ?? null
-  const dividaTotalConsignadaCent = result.divida_total_consignada_cent ?? null
   const consignadoMensalCent = result.consignado_mensal_cent
 
   const isBenefitContext =
@@ -43,7 +42,7 @@ export function CoverSummary({
       ? Math.max(baseCalculoCent - totalComprometidoCent, 0)
       : salarioLiquidoCent
   const totalDescontosBaseCent = isBenefitContext
-    ? (dividaTotalConsignadaCent ?? totalDescontosCent)
+    ? (totalComprometidoCent ?? totalDescontosCent)
     : totalDescontosCent
   const descontoMensalAtualCent = isBenefitContext ? totalComprometidoCent : dividaMensalCent
   const descontoMensalReduzidoCent =
@@ -232,6 +231,61 @@ export function CoverSummary({
         </table>
       </div>
 
+      <div
+        className="mt-2 rounded-sm px-3 py-2"
+        style={{
+          backgroundColor: PDF_COLORS.warmGray,
+          border: `1px solid ${PDF_COLORS.borderGray}`,
+        }}
+      >
+        <div className="grid grid-cols-4 gap-2">
+          <div
+            className="rounded-sm bg-white px-2 py-2 text-center"
+            style={{ border: `1px solid ${PDF_COLORS.borderGray}` }}
+          >
+            <p className="text-[16px] font-bold" style={{ color: PDF_COLORS.darkBlue }}>
+              +1.200
+            </p>
+            <p className="text-[8px] leading-tight" style={{ color: PDF_COLORS.textSecondary }}>
+              clientes atendidos
+            </p>
+          </div>
+          <div
+            className="rounded-sm bg-white px-2 py-2 text-center"
+            style={{ border: `1px solid ${PDF_COLORS.borderGray}` }}
+          >
+            <p className="text-[16px] font-bold" style={{ color: PDF_COLORS.accentGreen }}>
+              R$ 18M+
+            </p>
+            <p className="text-[8px] leading-tight" style={{ color: PDF_COLORS.textSecondary }}>
+              em economia gerada
+            </p>
+          </div>
+          <div
+            className="rounded-sm bg-white px-2 py-2 text-center"
+            style={{ border: `1px solid ${PDF_COLORS.borderGray}` }}
+          >
+            <p className="text-[16px] font-bold" style={{ color: PDF_COLORS.darkBlue }}>
+              4 anos
+            </p>
+            <p className="text-[8px] leading-tight" style={{ color: PDF_COLORS.textSecondary }}>
+              de atuação
+            </p>
+          </div>
+          <div
+            className="rounded-sm bg-white px-2 py-2 text-center"
+            style={{ border: `1px solid ${PDF_COLORS.borderGray}` }}
+          >
+            <p className="text-[16px] font-bold" style={{ color: PDF_COLORS.accentGreen }}>
+              92%
+            </p>
+            <p className="text-[8px] leading-tight" style={{ color: PDF_COLORS.textSecondary }}>
+              de ações com resultado favorável
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Green economy highlight */}
       <div className="mt-3">
         <GreenHighlightBox>
@@ -255,6 +309,25 @@ export function CoverSummary({
         </GreenHighlightBox>
       </div>
 
+      <div
+        className="mt-3 rounded-sm px-4 py-3"
+        style={{
+          backgroundColor: PDF_COLORS.warmGray,
+          borderLeft: `4px solid ${PDF_COLORS.accentGreen}`,
+        }}
+      >
+        <p className="text-[10px] leading-relaxed" style={{ color: PDF_COLORS.textSecondary }}>
+          {isExtratoOnlyContext
+            ? '"Eu tinha 9 contratos de consignado e mal sobrava dinheiro pra viver. A Credilly entrou com o processo e em 45 dias minhas parcelas caíram de R$ 2.800 pra R$ 720. Agora consigo pagar minhas contas sem sufoco."'
+            : '"Vou ser sincero: achei que era golpe. Muita gente promete e não cumpre. Mas um colega de trabalho me indicou e eu resolvi tentar. Em menos de 2 meses minhas parcelas já tinham caído no contracheque. Me arrependo de não ter procurado antes."'}
+        </p>
+        <p className="mt-1 text-[10px] font-semibold" style={{ color: PDF_COLORS.textDark }}>
+          {isExtratoOnlyContext
+            ? '— M.S., servidor aposentado, São Paulo/SP'
+            : '— C.L., servidor público federal, Brasília/DF'}
+        </p>
+      </div>
+
       {/* Gray explanation box */}
       <div className="mt-3">
         <GrayBox title="Como funciona a renegociação">
@@ -268,9 +341,11 @@ export function CoverSummary({
             o comprometimento mensal de cada contrato, mantendo os mesmos prazos e condições gerais.
           </p>
           <p>
-            Os valores projetados neste relatório consideram uma redução
-            estimada de 75% no valor de cada parcela, refletindo o histórico de
-            resultados obtidos pela Credilly em casos semelhantes.
+            Os valores projetados neste relatório consideram uma redução de 75% no valor de
+            cada parcela, que representa a média dos resultados obtidos pela Credilly em ações
+            judiciais de revisão de consignados. Na prática, as reduções concedidas pela Justiça
+            variam entre 50% e 80%, dependendo do banco, do tipo de contrato e das condições
+            específicas de cada caso.
           </p>
         </GrayBox>
       </div>

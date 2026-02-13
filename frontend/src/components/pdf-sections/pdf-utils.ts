@@ -263,6 +263,7 @@ export type DetailedLoan = {
   reducaoCent: number
   parcelasEst: number | null
   saldoRestanteCent: number | null
+  economiaTotalContratoCent: number | null
 }
 
 export function buildDetailedLoans(
@@ -287,6 +288,8 @@ export function buildDetailedLoans(
         reducaoCent: parcelaAtualCent - novaParcelaCent,
         parcelasEst: prazo,
         saldoRestanteCent: prazo ? parcelaAtualCent * prazo : null,
+        economiaTotalContratoCent:
+          prazo ? (parcelaAtualCent - novaParcelaCent) * prazo : null,
       })
     }
   } else {
@@ -304,6 +307,8 @@ export function buildDetailedLoans(
         reducaoCent: parcelaAtualCent - novaParcelaCent,
         parcelasEst: prazo,
         saldoRestanteCent: prazo ? parcelaAtualCent * prazo : null,
+        economiaTotalContratoCent:
+          prazo ? (parcelaAtualCent - novaParcelaCent) * prazo : null,
       })
     }
   }

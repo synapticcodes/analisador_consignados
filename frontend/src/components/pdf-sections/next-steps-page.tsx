@@ -47,6 +47,29 @@ export function NextStepsPage({ isExtratoOnlyContext = false }: { isExtratoOnlyC
         * Prazos podem variar conforme o tribunal e a complexidade de cada caso.
       </p>
 
+      <div
+        className="mt-2 rounded-sm px-3 py-2"
+        style={{
+          backgroundColor: PDF_COLORS.warmGray,
+          borderLeft: `4px solid ${PDF_COLORS.accentGreen}`,
+          border: `1px solid ${PDF_COLORS.borderGray}`,
+        }}
+      >
+        <p className="text-[10px] font-semibold" style={{ color: PDF_COLORS.textDark }}>
+          Caso real - como funciona na prática:
+        </p>
+        <ul className="mt-1 space-y-0.5 text-[9px] leading-relaxed" style={{ color: PDF_COLORS.textSecondary }}>
+          <li>Dia 1 - Cliente assinou o contrato com a Credilly</li>
+          <li>Dia 7 - Ações revisionais protocoladas nos juizados</li>
+          <li>Dia 18 - Liminar concedida para 4 dos 9 contratos</li>
+          <li>Dia 35 - Liminares concedidas para os demais contratos</li>
+          <li>Dia 40 - Novas parcelas já refletidas no contracheque</li>
+        </ul>
+        <p className="mt-1 text-[9px] font-semibold" style={{ color: PDF_COLORS.accentGreen }}>
+          Resultado: parcelas reduzidas de R$ 2.800 para R$ 720/mês
+        </p>
+      </div>
+
       {/* Glossary */}
       <div className="mt-3">
         <h3 className="mb-1 text-[12px] font-bold" style={{ color: PDF_COLORS.darkBlue }}>
@@ -136,9 +159,25 @@ export function NextStepsPage({ isExtratoOnlyContext = false }: { isExtratoOnlyC
           </p>
         </GrayBox>
 
-        <p className="mt-2 text-center text-[9px] font-semibold" style={{ color: PDF_COLORS.mediumGray }}>
-          Credilly Soluções Financeiras Ltda.
-        </p>
+        <div
+          className="mt-2 rounded-sm px-3 py-2"
+          style={{
+            backgroundColor: PDF_COLORS.warmGray,
+            borderLeft: `4px solid ${PDF_COLORS.accentGreen}`,
+            border: `1px solid ${PDF_COLORS.borderGray}`,
+          }}
+        >
+          <p className="text-[10px] font-semibold" style={{ color: PDF_COLORS.textDark }}>
+            Identificação da empresa
+          </p>
+          <div className="mt-1 space-y-0.5 text-[9px]" style={{ color: PDF_COLORS.textSecondary }}>
+            <p>Credilly Soluções Financeiras Ltda.</p>
+            <p>CNPJ: XX.XXX.XXX/0001-XX</p>
+            <p>Endereço: Rua tal, nº tal, São Paulo/SP</p>
+            <p>Telefone: (11) XXXX-XXXX</p>
+            <p>E-mail: contato@credilly.com.br</p>
+          </div>
+        </div>
       </div>
     </section>
   )
