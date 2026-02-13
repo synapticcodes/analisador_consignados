@@ -37,6 +37,40 @@ function buildResult(overrides: Partial<FinalResultResponse> = {}): FinalResultR
 }
 
 describe('ResultSnapshot', () => {
+  it('renderiza capa antes/depois com economia mensal e anual estimadas', () => {
+    render(
+      <ResultSnapshot
+        result={buildResult()}
+        dateLabel="06/02/2026"
+      />
+    )
+
+    expect(screen.getByText('Seu diagnóstico financeiro (antes e depois)')).toBeInTheDocument()
+    expect(screen.getByText('Economia mensal estimada')).toBeInTheDocument()
+    expect(screen.getAllByText((content) => content.includes('540,00')).length).toBeGreaterThan(0)
+    expect(screen.getByText((content) => content.includes('Economia anual estimada:'))).toBeInTheDocument()
+    expect(screen.getByText((content) => content.includes('6.480,00'))).toBeInTheDocument()
+  })
+
+  it('mantém fallback de capa quando faltam dados para estimativa', () => {
+    render(
+      <ResultSnapshot
+        result={buildResult({
+          salario_bruto_cent: null,
+          salario_liquido_cent: null,
+          divida_mensal_cent: null,
+          divida_mensal_reduzida_cent: null,
+        })}
+        dateLabel="06/02/2026"
+      />
+    )
+
+    expect(screen.getByText('Economia mensal estimada')).toBeInTheDocument()
+    expect(screen.getByText('Dados insuficientes para estimar a economia mensal.')).toBeInTheDocument()
+    expect(screen.getByText('Novo salário líquido estimado')).toBeInTheDocument()
+    expect(screen.getAllByText('R$ --').length).toBeGreaterThan(0)
+  })
+
   it('renderiza apenas páginas 1 e 4 quando não há dados de páginas condicionais', () => {
     render(
       <ResultSnapshot
