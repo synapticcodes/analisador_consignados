@@ -64,4 +64,46 @@ describe('ContractsTable', () => {
 
     expect(screen.getAllByText('não consta').length).toBeGreaterThan(0)
   })
+
+  it('no total usa dados únicos disponíveis para restantes, taxa e CET', () => {
+    const partialContracts: LoanContractDetail[] = [
+      {
+        id: 'a',
+        lender_name: 'Banco Único',
+        contract_id: 'U-1',
+        parcela_cent: 53030,
+        parcelas_restantes: 12,
+        valor_total_cent: 559383,
+        taxa_juros: '1,80%',
+        status: 'ATIVO',
+        cet_mensal: '1,81%',
+        cet_anual: null,
+        iof_cent: null,
+        valor_emprestado_cent: null,
+      },
+      {
+        id: 'b',
+        lender_name: 'Cartão RMC',
+        contract_id: null,
+        parcela_cent: 16210,
+        parcelas_restantes: null,
+        valor_total_cent: 83000,
+        taxa_juros: null,
+        status: 'ATIVO',
+        cet_mensal: null,
+        cet_anual: null,
+        iof_cent: null,
+        valor_emprestado_cent: null,
+      },
+    ]
+
+    render(<ContractsTable contracts={partialContracts} />)
+
+    const totalRow = screen.getAllByRole('row').at(-1)
+    expect(totalRow).toBeTruthy()
+    expect(totalRow?.textContent).toContain('Total')
+    expect(totalRow?.textContent).toContain('12')
+    expect(totalRow?.textContent).toContain('1,80%')
+    expect(totalRow?.textContent).toContain('1,81%')
+  })
 })
