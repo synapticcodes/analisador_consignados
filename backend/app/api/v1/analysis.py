@@ -8,7 +8,8 @@ Baseado em PRD RF-013, RF-014, RF-015.
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+from time import perf_counter
 from pathlib import Path
 from typing import Annotated
 
@@ -20,12 +21,35 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.analysis_job import AnalysisJob, JobStatus
 from app.models.final_result import FinalResult
+from app.models.historical_contract import HistoricalContract
+from app.models.inss_margin import INSSMargin
+from app.models.loan_contract import LoanContract
 from app.models.offer import Offer
+from app.models.payroll_month import PayrollMonth
 from app.models.product import Product
 from app.models.uploaded_file import UploadedFile
+from app.schemas.final_result import (
+    ConsignadoLineDetail,
+    ContractCostDetail,
+    FinalResultResponse,
+    HistoricalContractDetail,
+    INSSMarginDetail,
+    LoanContractDetail,
+    MonetaryField,
+    ReportLayers,
+    SavingsSimulationContractDetail,
+    SavingsSimulationDetail,
+)
 from app.schemas.analysis_job import AnalysisJobCreate, AnalysisJobResponse
-from app.schemas.final_result import Evidence, FinalResultResponse, MonetaryField
+from app.schemas.final_result import Evidence
 from app.schemas.offer import OfferResponse
+from app.services.compute_engine import ComputeEngine
+from app.services.result_payload import (
+    has_inss_margin_data,
+    sanitize_pii_text,
+    truncate_alerts,
+)
+from app.services.savings_simulator import SavingsSimulator
 router = APIRouter(prefix="/analysis", tags=["Analysis"])
 
 logger = logging.getLogger(__name__)
@@ -180,8 +204,8 @@ async def create_analysis_job(
         product_id=product_uuid,
         renda_mensal_declarada_cent=renda_mensal_declarada_cent,
         gasto_dividas_declarado_cent=gasto_dividas_declarado_cent,
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
     )
 
     db.add(job)
@@ -233,7 +257,7 @@ async def create_analysis_job(
         job.status = JobStatus.FAILED.value
         job.error_code = "QUEUE_ERROR"
         job.error_message = str(e)[:500]
-        job.completed_at = datetime.now()
+        job.completed_at = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(job)
 
@@ -344,8 +368,7 @@ async def get_job_result(
     def cents_to_currency(cents: int | None) -> float | None:
         return cents / 100.0 if cents is not None else None
 
-    # TODO: Buscar evidências reais do banco de dados
-    # Por enquanto, retornar dados mockados
+    # Evidência padrão quando não há proveniência por campo
     dummy_evidence = Evidence(
         file_id=uuid.uuid4(),
         page=0,
@@ -360,14 +383,143 @@ async def get_job_result(
     liquido_source = provenance.get("salario_liquido", {}).get("source", "PAYROLL")
     descontos_source = provenance.get("total_descontos", {}).get("source", bruto_source)
 
+    feature_pdf_v2_enabled = settings.feature_pdf_v2_enabled
+    feature_pdf_v2_phase2_enabled = (
+        feature_pdf_v2_enabled and settings.feature_pdf_v2_phase2_enabled
+    )
+    feature_pdf_v2_phase3_enabled = (
+        feature_pdf_v2_enabled and settings.feature_pdf_v2_phase3_enabled
+    )
+
     offers_result = await db.execute(select(Offer).where(Offer.job_id == job_id))
     offers = offers_result.scalars().all()
     offers_sorted = sorted(
         offers,
-        key=lambda offer: ["PRINCIPAL", "REDUZIDA", "SUPER"].index(offer.kind)
-        if offer.kind in ["PRINCIPAL", "REDUZIDA", "SUPER"]
+        key=lambda offer: ["REDUZIDA", "PRINCIPAL", "SUPER"].index(offer.kind)
+        if offer.kind in ["REDUZIDA", "PRINCIPAL", "SUPER"]
         else 999,
     )
+
+    consignado_lines_payload: list[ConsignadoLineDetail] = []
+    loan_contracts_sorted: list[LoanContract] = []
+    inss_margin: INSSMargin | None = None
+    historical_contracts: list[HistoricalContract] = []
+    contract_costs: list[dict[str, int | str | None]] = []
+    contract_cost_total_cent: int | None = None
+    savings_simulation_payload: SavingsSimulationDetail | None = None
+
+    if feature_pdf_v2_enabled:
+        query_start = perf_counter()
+
+        loan_contracts_result = await db.execute(
+            select(LoanContract).where(LoanContract.job_id == job_id)
+        )
+        loan_contracts = loan_contracts_result.scalars().all()
+        loan_contracts_sorted = sorted(
+            loan_contracts,
+            key=lambda item: (item.parcela_cent or 0),
+            reverse=True,
+        )
+
+        payroll_result = await db.execute(
+            select(PayrollMonth).where(PayrollMonth.job_id == job_id)
+        )
+        payroll_months = payroll_result.scalars().all()
+        for payroll in payroll_months:
+            for line in payroll.consignado_lines or []:
+                valor_cent = line.get("valor_cent")
+                if valor_cent is None:
+                    continue
+                descricao_legacy = str(line.get("descricao", "") or "")
+                descricao_raw = (
+                    line.get("descricao_raw")
+                    or line.get("descricaoRaw")
+                    or descricao_legacy
+                )
+                descricao_canonica = (
+                    line.get("descricao_canonica")
+                    or line.get("descricaoCanonica")
+                    or descricao_legacy
+                )
+                consignado_lines_payload.append(
+                    ConsignadoLineDetail(
+                        descricao=descricao_legacy,
+                        descricao_raw=str(descricao_raw) if descricao_raw else None,
+                        descricao_canonica=(
+                            str(descricao_canonica) if descricao_canonica else None
+                        ),
+                        rubrica=line.get("rubrica"),
+                        prazo=(
+                            int(line.get("prazo"))
+                            if line.get("prazo") is not None
+                            and str(line.get("prazo")).isdigit()
+                            else None
+                        ),
+                        valor_cent=int(valor_cent),
+                    )
+                )
+        consignado_lines_payload.sort(key=lambda item: item.valor_cent, reverse=True)
+
+        inss_margin_result = await db.execute(
+            select(INSSMargin).where(INSSMargin.job_id == job_id)
+        )
+        inss_margin = inss_margin_result.scalar_one_or_none()
+
+        historical_result = await db.execute(
+            select(HistoricalContract).where(HistoricalContract.job_id == job_id)
+        )
+        historical_contracts = historical_result.scalars().all()
+
+        query_elapsed_ms = int((perf_counter() - query_start) * 1000)
+        logger.info("result_query.job=%s elapsed_ms=%s", job_id, query_elapsed_ms)
+
+        if feature_pdf_v2_phase2_enabled:
+            compute_engine = ComputeEngine()
+            contract_costs, computed_total_cent = compute_engine.compute_contract_costs(
+                loan_contracts_sorted
+            )
+            contract_cost_total_cent = computed_total_cent
+
+            savings_result = SavingsSimulator().simulate_refinancing(
+                loan_contracts_sorted,
+                taxa_referencia_mensal=settings.taxa_referencia_mensal,
+            )
+            if savings_result.contratos:
+                savings_simulation_payload = SavingsSimulationDetail(
+                    economia_mensal_total_cent=savings_result.economia_mensal_total_cent,
+                    economia_total_restante_cent=savings_result.economia_total_restante_cent,
+                    taxa_referencia_mensal_percent=savings_result.taxa_referencia_mensal_percent,
+                    disclaimer=savings_result.disclaimer,
+                    contratos=[
+                        SavingsSimulationContractDetail(
+                            contract_key=item.contract_key,
+                            lender_name=item.lender_name,
+                            parcela_atual_cent=item.parcela_atual_cent,
+                            parcela_nova_estimada_cent=item.parcela_nova_estimada_cent,
+                            economia_mensal_cent=item.economia_mensal_cent,
+                            economia_total_restante_cent=item.economia_total_restante_cent,
+                            parcelas_restantes=item.parcelas_restantes,
+                            taxa_atual_mensal_percent=item.taxa_atual_mensal_percent,
+                            taxa_referencia_mensal_percent=item.taxa_referencia_mensal_percent,
+                        )
+                        for item in savings_result.contratos
+                    ],
+                )
+
+    report_layers = ReportLayers()
+    if feature_pdf_v2_phase3_enabled:
+        report_layers = ReportLayers(
+            confirmado=[
+                "Valores de contratos identificados nos documentos enviados",
+                "Linhas de consignado extraídas do contracheque/extrato",
+            ],
+            indicacao=[
+                "Simulação de economia por portabilidade usando taxa de referência",
+            ],
+            nao_disponivel=[
+                "Score de crédito, negativações e mapa completo fora dos documentos enviados",
+            ],
+        )
 
     response = FinalResultResponse(
         job_id=job_id,
@@ -435,8 +587,93 @@ async def get_job_result(
             method=calculation_methods.get("divida_total_reduzida", "COMPUTED"),
         ),
         parcelas_restantes_total=final_result.parcelas_restantes_total,
-        alerts=final_result.alerts or [],
+        alerts=truncate_alerts(final_result.alerts),
         offers=[OfferResponse.model_validate(offer) for offer in offers_sorted],
+        loan_contracts=[
+            LoanContractDetail(
+                id=contract.id,
+                lender_name=contract.lender_name or "Banco não identificado",
+                contract_id=contract.contract_id,
+                parcela_cent=contract.parcela_cent,
+                parcelas_restantes=contract.parcelas_restantes,
+                valor_total_cent=contract.valor_total_cent,
+                taxa_juros=contract.taxa_juros,
+                status=contract.status,
+                cet_mensal=contract.cet_mensal,
+                cet_anual=contract.cet_anual,
+                iof_cent=contract.iof_cent,
+                valor_emprestado_cent=contract.valor_emprestado_cent,
+            )
+            for contract in loan_contracts_sorted
+        ]
+        if feature_pdf_v2_enabled
+        else [],
+        consignado_lines=consignado_lines_payload if feature_pdf_v2_enabled else [],
+        inss_margin=(
+            INSSMarginDetail(
+                base_calculo_cent=inss_margin.base_calculo_cent,
+                max_comprometimento_cent=inss_margin.max_comprometimento_cent,
+                total_comprometido_cent=inss_margin.total_comprometido_cent,
+                margem_emprestimo_cent=inss_margin.margem_emprestimo_cent,
+                margem_rmc_cent=inss_margin.margem_rmc_cent,
+                margem_rcc_cent=inss_margin.margem_rcc_cent,
+                cet_mensal=inss_margin.cet_mensal,
+                cet_anual=inss_margin.cet_anual,
+                rmc_banco=inss_margin.rmc_banco,
+                rmc_limite_cent=inss_margin.rmc_limite_cent,
+                rmc_reservado_cent=inss_margin.rmc_reservado_cent,
+                evidence={
+                    key: sanitize_pii_text(value)
+                    for key, value in (inss_margin.evidence or {}).items()
+                    if value is not None
+                },
+            )
+            if feature_pdf_v2_enabled and has_inss_margin_data(inss_margin)
+            else None
+        ),
+        historical_contracts=[
+            HistoricalContractDetail(
+                id=contract.id,
+                lender_name=contract.lender_name,
+                contract_id=contract.contract_id,
+                data_contratacao=(
+                    contract.data_contratacao.isoformat()
+                    if contract.data_contratacao
+                    else None
+                ),
+                data_quitacao=(
+                    contract.data_quitacao.isoformat() if contract.data_quitacao else None
+                ),
+                parcela_cent=contract.parcela_cent,
+                valor_emprestado_cent=contract.valor_emprestado_cent,
+                motivo_encerramento=contract.motivo_encerramento,
+            )
+            for contract in historical_contracts
+        ]
+        if feature_pdf_v2_enabled
+        else [],
+        custo_juros_total_cent=(
+            contract_cost_total_cent
+            if feature_pdf_v2_phase2_enabled
+            and contract_costs
+            and contract_cost_total_cent is not None
+            else None
+        ),
+        custo_juros_total_brl=(
+            cents_to_currency(contract_cost_total_cent)
+            if feature_pdf_v2_phase2_enabled
+            and contract_costs
+            and contract_cost_total_cent is not None
+            else None
+        ),
+        custo_juros_por_contrato=[
+            ContractCostDetail(**item)
+            for item in contract_costs
+        ]
+        if feature_pdf_v2_phase2_enabled
+        else [],
+        savings_simulation=savings_simulation_payload if feature_pdf_v2_phase2_enabled else None,
+        report_layers=report_layers,
     )
 
     return response

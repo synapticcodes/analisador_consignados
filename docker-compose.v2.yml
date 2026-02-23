@@ -1,0 +1,61 @@
+version: "3.9"
+
+services:
+  postgres:
+    container_name: calc-consignados-postgres-v2
+    ports:
+      - "5433:5432"
+
+  redis:
+    container_name: calc-consignados-redis-v2
+    ports:
+      - "6380:6379"
+
+  qdrant:
+    container_name: calc-consignados-qdrant-v2
+    ports:
+      - "6335:6333"
+      - "6336:6334"
+
+  minio:
+    container_name: calc-consignados-minio-v2
+    ports:
+      - "9010:9000"
+      - "9011:9001"
+
+  minio-init:
+    container_name: calc-consignados-minio-init-v2
+
+  backend:
+    container_name: calc-consignados-backend-v2
+    ports:
+      - "8001:8000"
+    environment:
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS_V2:-http://localhost:3001}
+
+  celery-worker:
+    container_name: calc-consignados-celery-worker-v2
+
+  frontend:
+    container_name: calc-consignados-frontend-v2
+    ports:
+      - "3001:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL_V2:-http://localhost:8001}
+      NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL_V2:-ws://localhost:8001}
+
+volumes:
+  postgres_data:
+    name: calc-consignados-v2-postgres_data
+  redis_data:
+    name: calc-consignados-v2-redis_data
+  qdrant_data:
+    name: calc-consignados-v2-qdrant_data
+  minio_data:
+    name: calc-consignados-v2-minio_data
+  backend_cache:
+    name: calc-consignados-v2-backend_cache
+
+networks:
+  calc-network:
+    name: calc-consignados-v2-network

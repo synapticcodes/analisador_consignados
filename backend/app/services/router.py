@@ -188,7 +188,19 @@ class RouterService:
         def _heuristic_classification(text_blob: str) -> RouterResult:
             text_upper = text_blob.upper()
             # Heurísticas simples baseadas em palavras-chave
-            if "FOLHA DE PAGAMENTO" in text_upper or "PROVENTOS" in text_upper and "DESCONTOS" in text_upper:
+            has_folha_marker = (
+                "FOLHA DE PAGAMENTO" in text_upper
+                or "COMPROVANTE DE RENDIMENTOS" in text_upper
+                or (
+                    "FOLHA" in text_upper
+                    and ("RENDIMENTOS" in text_upper or "DESCONTOS" in text_upper)
+                )
+                or (
+                    "RENDIMENTOS" in text_upper and "DESCONTOS" in text_upper
+                )
+                or ("PROVENTOS" in text_upper and "DESCONTOS" in text_upper)
+            )
+            if has_folha_marker:
                 return RouterResult(
                     doc_family=DocumentFamily.PAYROLL_SALARY_STATEMENT.value,
                     confidence=0.6,
@@ -197,7 +209,10 @@ class RouterService:
                         DocumentCapability.PROVIDES_CONSIGNADO_LINES.value,
                     ],
                     competencias_detectadas=[],
-                    evidence=_find_evidence_lines(text_blob, ["FOLHA", "PROVENTOS", "DESCONTOS"]),
+                    evidence=_find_evidence_lines(
+                        text_blob,
+                        ["FOLHA", "RENDIMENTOS", "PROVENTOS", "DESCONTOS"],
+                    ),
                 )
 
             if "HISTÓRICO DE CRÉDITOS" in text_upper or "HISTORICO DE CREDITOS" in text_upper:

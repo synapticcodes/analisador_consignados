@@ -32,12 +32,16 @@ import {
 } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import ResultSnapshot from '@/components/result-snapshot'
+import LegacyResultSnapshot from '@/components/result-snapshot-legacy'
 import { getJobResult } from '@/lib/api'
+import { resolvePdfExportTargets } from '@/lib/pdf-export'
 import {
   type FinalResultResponse,
   formatCurrency,
   formatCompetencia,
 } from '@/types/api'
+
+const MIN_OFFER_QUALIFICATION_CENT = 1621 * 100
 
 // =============================================
 // Output Card Component
@@ -109,10 +113,17 @@ function buildWhatsappMessage(offers: FinalResultResponse['offers']) {
   if (orderedOffers.length === 0) return ''
 
   const headerCount = orderedOffers.length
+  const hasEntry = orderedOffers.some(
+    (offer) => offer.entry_value_cent !== undefined && offer.entry_value_cent !== null
+  )
   const header =
-    headerCount === 1
-      ? 'Separei 1 condição para você, toda no boleto e sem juros:'
-      : `Separei ${headerCount} condições para você, todas no boleto e sem juros:`
+    hasEntry
+      ? headerCount === 1
+        ? 'Separei 1 condição para você, com entrada via PIX e parcelas no boleto, sem juros:'
+        : `Separei ${headerCount} condições para você, com entrada via PIX quando aplicável e parcelas no boleto, sem juros:`
+      : headerCount === 1
+        ? 'Separei 1 condição para você, toda no boleto e sem juros:'
+        : `Separei ${headerCount} condições para você, todas no boleto e sem juros:`
 
   const offerBlocks = orderedOffers.map((offer, index) => {
     const label = labels[index] ?? ''
@@ -121,7 +132,17 @@ function buildWhatsappMessage(offers: FinalResultResponse['offers']) {
       offer.kind === 'SUPER' && offer.first_payment_days === 1
         ? '1ª parcela amanhã'
         : `1ª parcela em ${offer.first_payment_days} ${dayLabel}`
-    const details = `${offer.installment_count}x de ${formatCurrency(offer.installment_value_cent)} — ${firstPayment}`
+    const entryDetails =
+      offer.entry_value_cent !== undefined && offer.entry_value_cent !== null
+        ? `Entrada de ${formatCurrency(offer.entry_value_cent)} via PIX ${
+            offer.entry_due_days === 1
+              ? 'amanhã'
+              : offer.entry_due_days && offer.entry_due_days > 1
+                ? `em ${offer.entry_due_days} dias`
+                : 'no ato'
+          } + `
+        : ''
+    const details = `${entryDetails}${offer.installment_count}x de ${formatCurrency(offer.installment_value_cent)} no boleto — ${firstPayment}`
     return [label, details].filter(Boolean).join('\n')
   })
 
@@ -130,6 +151,27 @@ function buildWhatsappMessage(offers: FinalResultResponse['offers']) {
     'Qual faz mais sentido pra você?'
 
   return [header, ...offerBlocks, closing].join('\n\n')
+}
+
+function getBeneficioLiquidoCent(result: FinalResultResponse): number | null {
+  const baseCalculo = result.inss_margin?.base_calculo_cent ?? null
+  const totalComprometido = result.inss_margin?.total_comprometido_cent ?? null
+  if (baseCalculo === null || totalComprometido === null) return null
+  const value = baseCalculo - totalComprometido
+  return value > 0 ? value : null
+}
+
+function getOfferQualificationBaseCent(result: FinalResultResponse): number | null {
+  const salarioLiquidoCent =
+    result.salario_liquido_cent !== null && result.salario_liquido_cent > 0
+      ? result.salario_liquido_cent
+      : null
+  const beneficioLiquidoCent = getBeneficioLiquidoCent(result)
+
+  if (salarioLiquidoCent !== null && beneficioLiquidoCent !== null) {
+    return salarioLiquidoCent + beneficioLiquidoCent
+  }
+  return salarioLiquidoCent ?? beneficioLiquidoCent
 }
 
 // =============================================
@@ -144,14 +186,30 @@ export default function JobResultPage() {
   const [result, setResult] = useState<FinalResultResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [clientName, setClientName] = useState('')
-  const [exporting, setExporting] = useState<'pdf' | 'png' | null>(null)
+  const [clientCpf, setClientCpf] = useState('')
+  const [exporting, setExporting] = useState<'pdf' | null>(null)
   const snapshotRef = useRef<HTMLDivElement | null>(null)
+  const legacySnapshotRef = useRef<HTMLDivElement | null>(null)
 
   const dateLabel = useMemo(
     () => new Date().toLocaleDateString('pt-BR'),
     []
   )
   const fileDate = useMemo(() => new Date().toISOString().slice(0, 10), [])
+  const featurePdfV2Enabled =
+    process.env.NEXT_PUBLIC_FEATURE_PDF_V2_ENABLED !== 'false'
+  const featurePdfV2Phase2Enabled =
+    process.env.NEXT_PUBLIC_FEATURE_PDF_V2_PHASE2_ENABLED !== 'false'
+  const featurePdfV2Phase3Enabled =
+    process.env.NEXT_PUBLIC_FEATURE_PDF_V2_PHASE3_ENABLED !== 'false'
+
+  const formatCpfInput = (value: string) => {
+    const digits = value.replace(/\D/g, '').slice(0, 11)
+    if (digits.length <= 3) return digits
+    if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`
+    if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`
+    return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`
+  }
 
   useEffect(() => {
     if (!jobId) {
@@ -218,8 +276,13 @@ export default function JobResultPage() {
   const hasAlerts = result.alerts && result.alerts.length > 0
   const hasOffers = result.offers && result.offers.length > 0
   const singleOffer = hasOffers && result.offers!.length === 1
+  const qualificationBaseCent = getOfferQualificationBaseCent(result)
+  const isLeadNotQualifiedForOffers =
+    qualificationBaseCent !== null &&
+    qualificationBaseCent < MIN_OFFER_QUALIFICATION_CENT
   const whatsappMessage = buildWhatsappMessage(result.offers)
-  const shouldShowWhatsappMessage = hasOffers && whatsappMessage.length > 0
+  const shouldShowWhatsappMessage =
+    hasOffers && whatsappMessage.length > 0 && !isLeadNotQualifiedForOffers
 
   const baseFileName = `diagnostico-${jobId}-${fileDate}`
 
@@ -231,29 +294,12 @@ export default function JobResultPage() {
     return snapshotRef.current
   }
 
-  const handleExportPng = async () => {
-    const snapshot = ensureSnapshot()
-    if (!snapshot) return
-
-    setExporting('png')
-    try {
-      const dataUrl = await toPng(snapshot, {
-        backgroundColor: '#ffffff',
-        cacheBust: true,
-        pixelRatio: 2,
-      })
-
-      const link = document.createElement('a')
-      link.href = dataUrl
-      link.download = `${baseFileName}.png`
-      link.click()
-      toast.success('PNG gerado com sucesso')
-    } catch (error) {
-      console.error('Error exporting PNG:', error)
-      toast.error('Erro ao gerar PNG')
-    } finally {
-      setExporting(null)
-    }
+  const captureElementPng = async (element: HTMLElement) => {
+    return toPng(element, {
+      backgroundColor: '#ffffff',
+      cacheBust: true,
+      pixelRatio: 2,
+    })
   }
 
   const handleExportPdf = async () => {
@@ -261,26 +307,80 @@ export default function JobResultPage() {
     if (!snapshot) return
 
     setExporting('pdf')
+    const startedAt = performance.now()
     try {
-      const dataUrl = await toPng(snapshot, {
-        backgroundColor: '#ffffff',
-        cacheBust: true,
-        pixelRatio: 2,
-      })
-
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
         format: 'a4',
       })
-      const pageWidth = pdf.internal.pageSize.getWidth()
-      const pageHeight = pdf.internal.pageSize.getHeight()
-      pdf.addImage(dataUrl, 'PNG', 0, 0, pageWidth, pageHeight, undefined, 'FAST')
+
+      const pageWidth = 210
+      const pageHeight = 297
+      const exportTargets = resolvePdfExportTargets({
+        featurePdfV2Enabled,
+        v2Snapshot: snapshotRef.current,
+        legacySnapshot: legacySnapshotRef.current,
+      })
+
+      if (exportTargets.hasMultipage) {
+        for (let index = 0; index < exportTargets.multipagePages.length; index += 1) {
+          const dataUrl = await captureElementPng(exportTargets.multipagePages[index])
+          if (index > 0) {
+            pdf.addPage('a4', 'portrait')
+          }
+          pdf.addImage(dataUrl, 'PNG', 0, 0, pageWidth, pageHeight, undefined, 'FAST')
+        }
+        console.info('export_pdf_v2', {
+          elapsed_ms: Math.round(performance.now() - startedAt),
+          pages: exportTargets.multipagePages.length,
+          sections: {
+            contracts: result.loan_contracts?.length ?? 0,
+            consignado_lines: result.consignado_lines?.length ?? 0,
+            has_margin: !!result.inss_margin,
+            offers: result.offers?.length ?? 0,
+          },
+        })
+      } else {
+        const fallbackPage = exportTargets.legacyPage
+        if (!fallbackPage) {
+          throw new Error('Snapshot legado de fallback não encontrado')
+        }
+        const fallbackUrl = await captureElementPng(fallbackPage)
+        pdf.addImage(fallbackUrl, 'PNG', 0, 0, pageWidth, pageHeight, undefined, 'FAST')
+        console.info('export_pdf_legacy_fallback', {
+          elapsed_ms: Math.round(performance.now() - startedAt),
+          pages: 1,
+        })
+      }
+
       pdf.save(`${baseFileName}.pdf`)
       toast.success('PDF gerado com sucesso')
     } catch (error) {
       console.error('Error exporting PDF:', error)
-      toast.error('Erro ao gerar PDF')
+      try {
+        // Fallback de segurança para formato legado de 1 página real.
+        const fallbackPage = resolvePdfExportTargets({
+          featurePdfV2Enabled,
+          v2Snapshot: snapshotRef.current,
+          legacySnapshot: legacySnapshotRef.current,
+        }).legacyPage
+        if (!fallbackPage) {
+          throw new Error('Snapshot legado de fallback não encontrado')
+        }
+        const fallbackUrl = await captureElementPng(fallbackPage)
+        const fallbackPdf = new jsPDF({
+          orientation: 'portrait',
+          unit: 'mm',
+          format: 'a4',
+        })
+        fallbackPdf.addImage(fallbackUrl, 'PNG', 0, 0, 210, 297, undefined, 'FAST')
+        fallbackPdf.save(`${baseFileName}.pdf`)
+        toast.success('PDF gerado com fallback de segurança')
+      } catch (fallbackError) {
+        console.error('Error on PDF fallback:', fallbackError)
+        toast.error('Erro ao gerar PDF')
+      }
     } finally {
       setExporting(null)
     }
@@ -322,7 +422,7 @@ export default function JobResultPage() {
               Exportar diagnóstico
             </CardTitle>
             <CardDescription>
-              Gere o PDF ou a imagem para compartilhar com o cliente
+              Gere o PDF para compartilhar com o cliente
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -338,17 +438,22 @@ export default function JobResultPage() {
                   className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
                 />
               </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700">
+                  CPF (opcional)
+                </label>
+                <input
+                  value={clientCpf}
+                  onChange={(event) => setClientCpf(formatCpfInput(event.target.value))}
+                  placeholder="111.111.111-11"
+                  inputMode="numeric"
+                  className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 shadow-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
             </div>
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <Button onClick={handleExportPdf} disabled={exporting !== null}>
                 {exporting === 'pdf' ? 'Gerando PDF...' : 'Baixar PDF'}
-              </Button>
-              <Button
-                onClick={handleExportPng}
-                variant="secondary"
-                disabled={exporting !== null}
-              >
-                {exporting === 'png' ? 'Gerando PNG...' : 'Baixar PNG'}
               </Button>
               <span className="text-xs text-gray-500">
                 Data do relatório: {dateLabel}
@@ -413,7 +518,7 @@ export default function JobResultPage() {
               title="Salário Bruto"
               value={result.salario_bruto_cent}
               color="blue"
-              description="Remuneração total antes dos descontos"
+              description="Salário bruto do lead antes dos descontos"
             />
 
             {/* Salário Líquido */}
@@ -422,7 +527,7 @@ export default function JobResultPage() {
               title="Salário Líquido"
               value={result.salario_liquido_cent}
               color="green"
-              description="Valor recebido após descontos"
+              description="Salário líquido do lead antes dos descontos"
             />
 
             {/* Total Descontos */}
@@ -440,7 +545,7 @@ export default function JobResultPage() {
               title="Dívida Mensal"
               value={result.divida_mensal_cent}
               color="blue"
-              description="90% do total de descontos"
+              description="Desconto mensal atual no salário do lead"
             />
 
             {/* Dívida Mensal Reduzida */}
@@ -449,7 +554,7 @@ export default function JobResultPage() {
               title="Dívida Mensal Reduzida"
               value={result.divida_mensal_reduzida_cent}
               color="green"
-              description="25% da dívida mensal"
+              description="Valor estimado que passará a ser descontado do lead"
             />
 
             {/* Dívida Total Consignada */}
@@ -458,7 +563,7 @@ export default function JobResultPage() {
               title="Dívida Total Consignada"
               value={result.divida_total_consignada_cent}
               color="purple"
-              description="Saldo devedor total"
+              description="Total da soma das dívidas de consignado do lead"
             />
 
             {/* Dívida Total Reduzida */}
@@ -467,7 +572,7 @@ export default function JobResultPage() {
               title="Dívida Total Reduzida"
               value={result.divida_total_reduzida_cent}
               color="green"
-              description="25% da dívida total consignada"
+              description="Valor estimado reduzido das dívidas de consignado do lead"
             />
           </div>
         </div>
@@ -501,9 +606,11 @@ export default function JobResultPage() {
                         offer.entry_value_cent !== null && (
                           <p>
                             Entrada: {formatCurrency(offer.entry_value_cent)}{' '}
-                            {offer.entry_due_days
-                              ? `em ${offer.entry_due_days} dias`
-                              : 'no ato'}
+                            {offer.entry_due_days === 1
+                              ? 'amanhã'
+                              : offer.entry_due_days && offer.entry_due_days > 1
+                                ? `em ${offer.entry_due_days} dias`
+                                : 'no ato'}
                           </p>
                         )}
                       <p>
@@ -519,6 +626,27 @@ export default function JobResultPage() {
               ))}
             </div>
           </div>
+        )}
+
+        {!hasOffers && isLeadNotQualifiedForOffers && (
+          <Card className="mb-8 border-red-200 bg-red-50">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <Badge variant="error">Não qualificado</Badge>
+                <CardTitle className="text-base font-semibold text-red-900">
+                  Ofertas do Produto
+                </CardTitle>
+              </div>
+              <CardDescription className="text-red-800">
+                Este lead não se qualifica para nossos serviços.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-red-900">
+                A base financeira para elegibilidade ficou abaixo de {formatCurrency(MIN_OFFER_QUALIFICATION_CENT)}.
+              </p>
+            </CardContent>
+          </Card>
         )}
 
         {/* WhatsApp Message */}
@@ -642,6 +770,22 @@ export default function JobResultPage() {
           ref={snapshotRef}
           result={result}
           clientName={clientName}
+          clientCpf={clientCpf}
+          dateLabel={dateLabel}
+          whatsappCtaText="WhatsApp: (11) 99999-9999"
+          enablePhase2={featurePdfV2Phase2Enabled}
+          enablePhase3={featurePdfV2Phase3Enabled}
+        />
+      </div>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed left-[-9999px] top-0"
+      >
+        <LegacyResultSnapshot
+          ref={legacySnapshotRef}
+          result={result}
+          clientName={clientName}
+          clientCpf={clientCpf}
           dateLabel={dateLabel}
         />
       </div>

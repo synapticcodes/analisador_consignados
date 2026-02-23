@@ -7,7 +7,16 @@ from enum import Enum
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,6 +24,8 @@ from app.core.database import Base
 
 if TYPE_CHECKING:
     from app.models.final_result import FinalResult
+    from app.models.historical_contract import HistoricalContract
+    from app.models.inss_margin import INSSMargin
     from app.models.loan_contract import LoanContract
     from app.models.offer import Offer
     from app.models.payroll_month import PayrollMonth
@@ -74,11 +85,13 @@ class AnalysisJob(Base):
     job_metadata: Mapped[dict | None] = mapped_column("metadata", JSONB, default=dict)
 
     # Timestamps
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), index=True)
-    updated_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), onupdate=func.now()
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
     )
-    completed_at: Mapped[datetime | None] = mapped_column()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Relationships
     user: Mapped["User | None"] = relationship("User", back_populates="jobs")
@@ -93,6 +106,14 @@ class AnalysisJob(Base):
 
     loan_contracts: Mapped[list["LoanContract"]] = relationship(
         "LoanContract", back_populates="job", cascade="all, delete-orphan"
+    )
+
+    inss_margin: Mapped["INSSMargin | None"] = relationship(
+        "INSSMargin", back_populates="job", uselist=False, cascade="all, delete-orphan"
+    )
+
+    historical_contracts: Mapped[list["HistoricalContract"]] = relationship(
+        "HistoricalContract", back_populates="job", cascade="all, delete-orphan"
     )
 
     payroll_months: Mapped[list["PayrollMonth"]] = relationship(

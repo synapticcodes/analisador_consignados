@@ -37,6 +37,11 @@ from app.services.router import (
     RouterResult,
     RouterService,
 )
+from app.services.savings_simulator import (
+    SavingsContractSimulation,
+    SavingsSimulationResult,
+    SavingsSimulator,
+)
 
 __all__ = [
     # PDF Extraction
@@ -80,4 +85,8 @@ __all__ = [
     "ComputeEngine",
     "ComputeResult",
     "ComputeMethod",
+    # Savings Simulator
+    "SavingsSimulator",
+    "SavingsSimulationResult",
+    "SavingsContractSimulation",
 ]

@@ -147,6 +147,7 @@ parcelas_restantes = sum(parcelas_restantes or total_parcelas - parcelas_pagas)
 - Do update tests when changing extraction logic, validation rules, or compute formulas.
 - Para testes, sempre que reiniciar o celery-worker, limpar dados e arquivos gerados (DB + storage) para começar do zero.
 - Sempre que houver qualquer modificação de código, reiniciar o celery-worker e limpar o DB + storage antes de testar.
+- Sempre que houver limpeza de ambiente, preservar os produtos já cadastrados no sistema (tabela `products`); não apagar catálogo de produtos existente.
 
 ## PR / Commit / Release Workflow
 - Branch naming: `feature/`, `fix/`, `docs/`, `refactor/`, `test/`, `chore/`.

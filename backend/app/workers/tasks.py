@@ -6,8 +6,10 @@ Tasks assíncronas para processamento de jobs de análise.
 """
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
+import hashlib
 from pathlib import Path
+import re
 from uuid import UUID
 
 from celery import Task
@@ -18,7 +20,11 @@ from app.core.config import settings
 from app.core.database import create_engine_and_session
 from app.models.analysis_job import AnalysisJob, JobStatus
 from app.models.final_result import FinalResult
+from app.models.historical_contract import HistoricalContract
+from app.models.inss_margin import INSSMargin
+from app.models.loan_contract import ContractStatus, LoanContract
 from app.models.offer import Offer
+from app.models.payroll_month import PayrollMonth
 from app.models.product import Product
 from app.models.document_extraction import DocumentExtraction
 from app.models.uploaded_file import UploadedFile
@@ -34,6 +40,11 @@ from app.services.extractors import (
 from app.services.llm_client import LLMClient, MockLLMClient
 from app.services.ocr_service import OCRService
 from app.services.offers import generate_offers
+from app.services.offer_salary_base import (
+    MIN_OFFER_QUALIFICATION_CENT,
+    is_offer_qualified,
+    resolve_offer_salary_cent,
+)
 from app.services.pdf_extraction import PDFExtractionService
 from app.services.router import RouterService
 from app.workers.celery_app import celery_app
@@ -88,7 +99,7 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
     Returns:
         Dicionário com resultado
     """
-    start_time = datetime.now()
+    start_time = datetime.now(timezone.utc)
 
     engine, session_maker = create_engine_and_session()
     try:
@@ -146,6 +157,10 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
             payment_results: list[PaymentExtractionResult] = []
             loan_results: list[LoanContractResult] = []
             doc_sources: dict[str, DocumentSource] = {}
+            payroll_records: list[PayrollMonth] = []
+            loan_records: list[LoanContract] = []
+            historical_records: list[HistoricalContract] = []
+            inss_margin_payload: tuple[dict[str, object], UUID] | None = None
 
             def resolve_local_path(storage_url: str) -> Path:
                 if storage_url.startswith("local://"):
@@ -164,6 +179,42 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                 if result.parcelas_restantes is not None:
                     return True
                 return False
+
+            def to_cent(value: float | None) -> int | None:
+                if value is None:
+                    return None
+                return int(round(value * 100))
+
+            def infer_contract_status(alerts: list[str], explicit_status: str | None) -> str:
+                if explicit_status in {
+                    ContractStatus.ATIVO.value,
+                    ContractStatus.QUITADO.value,
+                    ContractStatus.INDEFINIDO.value,
+                }:
+                    return explicit_status
+                text = " ".join(alerts or []).lower()
+                if "encerr" in text or "exclu" in text or "quitad" in text:
+                    return ContractStatus.QUITADO.value
+                return ContractStatus.ATIVO.value
+
+            def normalize_rate_for_db(value: object) -> str | None:
+                if value is None:
+                    return None
+                raw = value
+                if isinstance(raw, dict):
+                    raw = raw.get("value")
+                if raw is None:
+                    return None
+                text = str(raw).strip()
+                if not text:
+                    return None
+                compact = text.replace(" ", "")
+                match = re.fullmatch(r"(\d{1,2},\d{1,2})%?", compact)
+                if match:
+                    text = f"{match.group(1)}%"
+                if len(text) > 20:
+                    return text[:20]
+                return text
 
             for i, file in enumerate(files):
                 # Step 1: PDF Extraction (arquivo real)
@@ -237,6 +288,65 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                             doc_sources[f"payment_{i}"] = (
                                 DocumentSource.PAYROLL_SALARY_STATEMENT
                             )
+                        payroll_records.append(
+                            PayrollMonth(
+                                job_id=job_id,
+                                source_file_id=file.id,
+                                competencia=payment_result.competencia or "1970-01",
+                                bruto_cent=to_cent(payment_result.salario_bruto.value),
+                                liquido_cent=to_cent(payment_result.salario_liquido.value),
+                                descontos_cent=to_cent(payment_result.total_descontos.value),
+                                consignado_cent=(
+                                    sum(
+                                        linha.valor_cent
+                                        for linha in (payment_result.linhas_consignado or [])
+                                    )
+                                    if payment_result.linhas_consignado
+                                    else None
+                                ),
+                                method_bruto=payment_result.salario_bruto.method,
+                                method_liquido=payment_result.salario_liquido.method,
+                                method_descontos=payment_result.total_descontos.method,
+                                method_consignado="SUM_LINES"
+                                if payment_result.linhas_consignado
+                                else None,
+                                evidence={
+                                    "salario_bruto": (
+                                        payment_result.salario_bruto.evidence.text
+                                        if payment_result.salario_bruto.evidence
+                                        else None
+                                    ),
+                                    "salario_liquido": (
+                                        payment_result.salario_liquido.evidence.text
+                                        if payment_result.salario_liquido.evidence
+                                        else None
+                                    ),
+                                    "total_descontos": (
+                                        payment_result.total_descontos.evidence.text
+                                        if payment_result.total_descontos.evidence
+                                        else None
+                                    ),
+                                },
+                                provenance={"router_family": router_result.doc_family},
+                                consignado_lines=[
+                                    {
+                                        "descricao": linha.descricao,
+                                        "descricao_raw": (
+                                            linha.descricao_raw or linha.descricao
+                                        ),
+                                        "descricao_canonica": (
+                                            linha.descricao_canonica
+                                            or linha.descricao
+                                        ),
+                                        "rubrica": linha.rubrica,
+                                        "prazo": linha.prazo,
+                                        "valor_cent": linha.valor_cent,
+                                    }
+                                    for linha in (payment_result.linhas_consignado or [])
+                                ],
+                                alerts=payment_result.alerts,
+                            )
+                        )
 
                 elif router_result.doc_family in [
                     "LOAN_CONTRACT_GENERIC",
@@ -255,6 +365,51 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                             gate_results.append((idx, gate_result, meaningful))
                             if meaningful and gate_result.gate_status.value != "FAILED":
                                 loan_results.append(loan_result)
+                                contract_key_raw = "|".join(
+                                    [
+                                        str(job_id),
+                                        str(file.id),
+                                        str(idx),
+                                        loan_result.contract_id or "",
+                                        loan_result.lender_name or "",
+                                    ]
+                                )
+                                loan_records.append(
+                                    LoanContract(
+                                        job_id=job_id,
+                                        source_file_id=file.id,
+                                        lender_name=loan_result.lender_name,
+                                        contract_id=loan_result.contract_id,
+                                        contract_key=hashlib.sha1(
+                                            contract_key_raw.encode("utf-8")
+                                        ).hexdigest(),
+                                        parcela_cent=to_cent(loan_result.parcela_mensal.value),
+                                        total_parcelas=loan_result.total_parcelas,
+                                        parcelas_pagas=loan_result.parcelas_pagas,
+                                        parcelas_restantes=loan_result.parcelas_restantes,
+                                        valor_total_cent=to_cent(loan_result.valor_total.value),
+                                        status=infer_contract_status(
+                                            loan_result.alerts, loan_result.status
+                                        ),
+                                        taxa_juros=normalize_rate_for_db(loan_result.taxa_juros),
+                                        cet_mensal=loan_result.cet_mensal,
+                                        cet_anual=loan_result.cet_anual,
+                                        iof_cent=loan_result.iof_cent,
+                                        valor_emprestado_cent=loan_result.valor_emprestado_cent,
+                                        evidence={
+                                            "parcela": (
+                                                loan_result.parcela_mensal.evidence.text
+                                                if loan_result.parcela_mensal.evidence
+                                                else None
+                                            ),
+                                            "valor_total": (
+                                                loan_result.valor_total.evidence.text
+                                                if loan_result.valor_total.evidence
+                                                else None
+                                            ),
+                                        },
+                                    )
+                                )
                             elif not meaningful:
                                 gate_alerts_payload.append(
                                     {
@@ -284,6 +439,90 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                             doc_sources[f"payment_{i}"] = (
                                 DocumentSource.INSS_EXTRATO_CONSIGNADO
                             )
+                            payroll_records.append(
+                                PayrollMonth(
+                                    job_id=job_id,
+                                    source_file_id=file.id,
+                                    competencia=beneficio_result.competencia or "1970-01",
+                                    bruto_cent=to_cent(beneficio_result.salario_bruto.value),
+                                    liquido_cent=to_cent(beneficio_result.salario_liquido.value),
+                                    descontos_cent=to_cent(
+                                        beneficio_result.total_descontos.value
+                                    ),
+                                    consignado_cent=None,
+                                    method_bruto=beneficio_result.salario_bruto.method,
+                                    method_liquido=beneficio_result.salario_liquido.method,
+                                    method_descontos=beneficio_result.total_descontos.method,
+                                    method_consignado=None,
+                                    evidence={
+                                        "salario_bruto": (
+                                            beneficio_result.salario_bruto.evidence.text
+                                            if beneficio_result.salario_bruto.evidence
+                                            else None
+                                        ),
+                                        "total_descontos": (
+                                            beneficio_result.total_descontos.evidence.text
+                                            if beneficio_result.total_descontos.evidence
+                                            else None
+                                        ),
+                                    },
+                                    provenance={"router_family": router_result.doc_family},
+                                    consignado_lines=[],
+                                    alerts=beneficio_result.alerts,
+                                )
+                            )
+
+                        margin_data = loan_extractor.extract_inss_margin_data(pdf_text)
+                        if margin_data and inss_margin_payload is None:
+                            inss_margin_payload = (margin_data, file.id)
+
+                        for historical in loan_extractor.extract_inss_historical_contracts(
+                            pdf_text
+                        ):
+                            data_contratacao = historical.get("data_contratacao")
+                            data_quitacao = historical.get("data_quitacao")
+                            historical_records.append(
+                                HistoricalContract(
+                                    job_id=job_id,
+                                    source_file_id=file.id,
+                                    lender_name=(
+                                        str(historical.get("lender_name"))
+                                        if historical.get("lender_name")
+                                        else None
+                                    ),
+                                    contract_id=(
+                                        str(historical.get("contract_id"))
+                                        if historical.get("contract_id")
+                                        else None
+                                    ),
+                                    data_contratacao=(
+                                        datetime.strptime(data_contratacao, "%Y-%m-%d").date()
+                                        if isinstance(data_contratacao, str)
+                                        else None
+                                    ),
+                                    data_quitacao=(
+                                        datetime.strptime(data_quitacao, "%Y-%m-%d").date()
+                                        if isinstance(data_quitacao, str)
+                                        else None
+                                    ),
+                                    parcela_cent=(
+                                        int(historical["parcela_cent"])
+                                        if historical.get("parcela_cent") is not None
+                                        else None
+                                    ),
+                                    valor_emprestado_cent=(
+                                        int(historical["valor_emprestado_cent"])
+                                        if historical.get("valor_emprestado_cent")
+                                        is not None
+                                        else None
+                                    ),
+                                    motivo_encerramento=(
+                                        str(historical.get("motivo_encerramento"))
+                                        if historical.get("motivo_encerramento")
+                                        else None
+                                    ),
+                                )
+                            )
                     else:
                         # Loan Extractor (contrato único)
                         loan_result = await loan_extractor.extract(pdf_text)
@@ -298,6 +537,51 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
 
                         if meaningful and gate_result.gate_status.value != "FAILED":
                             loan_results.append(loan_result)
+                            contract_key_raw = "|".join(
+                                [
+                                    str(job_id),
+                                    str(file.id),
+                                    "0",
+                                    loan_result.contract_id or "",
+                                    loan_result.lender_name or "",
+                                ]
+                            )
+                            loan_records.append(
+                                LoanContract(
+                                    job_id=job_id,
+                                    source_file_id=file.id,
+                                    lender_name=loan_result.lender_name,
+                                    contract_id=loan_result.contract_id,
+                                    contract_key=hashlib.sha1(
+                                        contract_key_raw.encode("utf-8")
+                                    ).hexdigest(),
+                                    parcela_cent=to_cent(loan_result.parcela_mensal.value),
+                                    total_parcelas=loan_result.total_parcelas,
+                                    parcelas_pagas=loan_result.parcelas_pagas,
+                                    parcelas_restantes=loan_result.parcelas_restantes,
+                                    valor_total_cent=to_cent(loan_result.valor_total.value),
+                                    status=infer_contract_status(
+                                        loan_result.alerts, loan_result.status
+                                    ),
+                                    taxa_juros=normalize_rate_for_db(loan_result.taxa_juros),
+                                    cet_mensal=loan_result.cet_mensal,
+                                    cet_anual=loan_result.cet_anual,
+                                    iof_cent=loan_result.iof_cent,
+                                    valor_emprestado_cent=loan_result.valor_emprestado_cent,
+                                    evidence={
+                                        "parcela": (
+                                            loan_result.parcela_mensal.evidence.text
+                                            if loan_result.parcela_mensal.evidence
+                                            else None
+                                        ),
+                                        "valor_total": (
+                                            loan_result.valor_total.evidence.text
+                                            if loan_result.valor_total.evidence
+                                            else None
+                                        ),
+                                    },
+                                )
+                            )
                         elif not meaningful:
                             gate_alerts_payload.append(
                                 {
@@ -391,6 +675,39 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                 )
                 db.add(extraction_record)
 
+            for payroll_record in payroll_records:
+                db.add(payroll_record)
+
+            for loan_record in loan_records:
+                loan_record.calculate_missing_fields()
+                db.add(loan_record)
+
+            for historical_record in historical_records:
+                db.add(historical_record)
+
+            if inss_margin_payload:
+                margin_data, source_file_id = inss_margin_payload
+                db.add(
+                    INSSMargin(
+                        job_id=job_id,
+                        source_file_id=source_file_id,
+                        base_calculo_cent=margin_data.get("base_calculo_cent"),
+                        max_comprometimento_cent=margin_data.get(
+                            "max_comprometimento_cent"
+                        ),
+                        total_comprometido_cent=margin_data.get("total_comprometido_cent"),
+                        margem_emprestimo_cent=margin_data.get("margem_emprestimo_cent"),
+                        margem_rmc_cent=margin_data.get("margem_rmc_cent"),
+                        margem_rcc_cent=margin_data.get("margem_rcc_cent"),
+                        cet_mensal=margin_data.get("cet_mensal"),
+                        cet_anual=margin_data.get("cet_anual"),
+                        rmc_banco=margin_data.get("rmc_banco"),
+                        rmc_limite_cent=margin_data.get("rmc_limite_cent"),
+                        rmc_reservado_cent=margin_data.get("rmc_reservado_cent"),
+                        evidence=margin_data.get("evidence"),
+                    )
+                )
+
             # 5. Consolidator (resolver conflitos)
             if not payment_results and not loan_results:
                 raise JobProcessingError(
@@ -414,11 +731,30 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
             # 6b. Gerar ofertas do produto (baseado no salário líquido)
             offers_alerts: list[str] = []
             offers_payload: list[Offer] = []
-            salary_cent = (
-                compute_result.salario_liquido_cent
-                if compute_result.salario_liquido_cent is not None
-                else job.renda_mensal_declarada_cent
+            inss_margin_data = inss_margin_payload[0] if inss_margin_payload else None
+            salary_cent, salary_source = resolve_offer_salary_cent(
+                compute_salario_liquido_cent=compute_result.salario_liquido_cent,
+                renda_mensal_declarada_cent=job.renda_mensal_declarada_cent,
+                perfil_dados=consolidated.perfil_dados,
+                inss_margin_data=inss_margin_data,
             )
+            if salary_source == "BENEFICIO_LIQUIDO_EXTRATO":
+                offers_alerts.append(
+                    "Ofertas geradas com base no benefício líquido estimado do extrato"
+                )
+            is_qualified, qualification_base_cent, qualification_source = is_offer_qualified(
+                compute_salario_liquido_cent=compute_result.salario_liquido_cent,
+                perfil_dados=consolidated.perfil_dados,
+                inss_margin_data=inss_margin_data,
+            )
+            if not is_qualified:
+                base_label = (
+                    f"{qualification_base_cent / 100:.2f}" if qualification_base_cent is not None else "--"
+                ).replace(".", ",")
+                min_label = f"{MIN_OFFER_QUALIFICATION_CENT / 100:.2f}".replace(".", ",")
+                offers_alerts.append(
+                    f"Lead não qualificado para ofertas: base {base_label} (< {min_label}) via {qualification_source}"
+                )
 
             product = None
             if job.product_id:
@@ -427,12 +763,13 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                 )
                 product = product_result.scalar_one_or_none()
 
-            if product:
-                offers, offers_alerts = generate_offers(
+            if product and is_qualified:
+                offers, generated_alerts = generate_offers(
                     job_id=job_id,
                     salary_cent=salary_cent,
                     product=product,
                 )
+                offers_alerts.extend(generated_alerts)
                 for offer in offers:
                     offers_payload.append(
                         Offer(
@@ -452,7 +789,7 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                             text=offer.text,
                         )
                     )
-            else:
+            elif not product:
                 offers_alerts.append("Ofertas não geradas: produto não informado")
 
             # 7. Persistir resultado final
@@ -500,10 +837,10 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
 
             # 8. Atualizar job para SUCCEEDED
             job.status = JobStatus.SUCCEEDED.value
-            job.completed_at = datetime.now()
+            job.completed_at = datetime.now(timezone.utc)
 
             # Calcular tempo de processamento
-            processing_time = (datetime.now() - start_time).total_seconds() * 1000
+            processing_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
             job.processing_time_ms = int(processing_time)
 
             await db.commit()
@@ -527,9 +864,9 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                     job.status = JobStatus.FAILED.value
                     job.error_code = "PROCESSING_ERROR"
                     job.error_message = str(e)[:500]  # Truncar mensagem
-                    job.completed_at = datetime.now()
+                    job.completed_at = datetime.now(timezone.utc)
 
-                    processing_time = (datetime.now() - start_time).total_seconds() * 1000
+                    processing_time = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
                     job.processing_time_ms = int(processing_time)
 
                     await db.commit()

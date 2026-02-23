@@ -9,6 +9,8 @@ from app.core.database import Base
 from app.models.analysis_job import AnalysisJob, JobStatus
 from app.models.document_extraction import DocumentExtraction, GateStatus
 from app.models.final_result import FinalResult
+from app.models.historical_contract import HistoricalContract
+from app.models.inss_margin import INSSMargin
 from app.models.loan_contract import ContractStatus, LoanContract
 from app.models.offer import Offer, OfferKind, PaymentMethod
 from app.models.payroll_month import PayrollMonth
@@ -25,6 +27,8 @@ __all__ = [
     "UploadedFile",
     "DocumentExtraction",
     "LoanContract",
+    "INSSMargin",
+    "HistoricalContract",
     "PayrollMonth",
     "FinalResult",
     "Product",
