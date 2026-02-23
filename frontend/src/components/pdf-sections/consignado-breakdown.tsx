@@ -111,7 +111,7 @@ export function ConsignadoBreakdown({
     <section className="space-y-2">
       <h3 className="text-xl font-semibold text-slate-900">{title}</h3>
       <p className="text-xs text-slate-600">
-        Simulação por linha considerando redução de 75% na parcela mensal.
+        Simulação por linha considerando projeção de redução na parcela mensal.
       </p>
 
       <div className="space-y-2">

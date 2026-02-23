@@ -58,7 +58,7 @@ export function PdfPageFooter({
       >
         <span className="max-w-[70%] leading-tight">
           Este documento é de uso exclusivo do destinatário e contém
-          informações confidenciais. A Credilly não se responsabiliza
+          informações confidenciais. A Resolvver não se responsabiliza
           por decisões tomadas exclusivamente com base neste relatório.
         </span>
         <span>

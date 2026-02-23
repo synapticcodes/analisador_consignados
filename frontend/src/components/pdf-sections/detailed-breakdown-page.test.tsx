@@ -36,6 +36,8 @@ describe('DetailedBreakdownPage', () => {
     expect(screen.getByText('Economia total')).toBeInTheDocument()
     expect(screen.getAllByText((content) => content.includes('54.831,15')).length).toBeGreaterThan(0)
     expect(screen.getAllByText('N/D').length).toBeGreaterThan(0)
-    expect(screen.getByText(/Nova parcela calculada com redução de 75%/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/Nova parcela calculada com base na projeção de revisão contratual/)
+    ).toBeInTheDocument()
   })
 })

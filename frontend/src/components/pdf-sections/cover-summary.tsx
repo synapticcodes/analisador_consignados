@@ -170,12 +170,9 @@ export function CoverSummary({
       {/* Yellow callout */}
       <YellowCalloutBox title="O que este documento mostra">
         <p>
-          Este relatório apresenta uma comparação entre a situação
-          atual dos seus empréstimos consignados e uma projeção de como ficariam
-          após a renegociação.{' '}
-          {isExtratoOnlyContext
-            ? 'Os valores projetados consideram os dados identificados no extrato INSS enviado.'
-            : 'Os valores projetados são estimativas baseadas em reduções já obtidas com perfis semelhantes.'}
+          Este relatório apresenta uma comparação entre a situação atual dos seus empréstimos
+          consignados e uma projeção de como ficariam após nossa atuação. Os valores projetados
+          são estimativas baseadas em reduções já obtidas com perfis semelhantes.
         </p>
       </YellowCalloutBox>
 
@@ -244,7 +241,7 @@ export function CoverSummary({
             style={{ border: `1px solid ${PDF_COLORS.borderGray}` }}
           >
             <p className="text-[16px] font-bold" style={{ color: PDF_COLORS.darkBlue }}>
-              +1.200
+              +600 mil
             </p>
             <p className="text-[8px] leading-tight" style={{ color: PDF_COLORS.textSecondary }}>
               clientes atendidos
@@ -255,10 +252,10 @@ export function CoverSummary({
             style={{ border: `1px solid ${PDF_COLORS.borderGray}` }}
           >
             <p className="text-[16px] font-bold" style={{ color: PDF_COLORS.accentGreen }}>
-              R$ 18M+
+              R$ 1 bi+
             </p>
             <p className="text-[8px] leading-tight" style={{ color: PDF_COLORS.textSecondary }}>
-              em economia gerada
+              em dívidas liquidadas
             </p>
           </div>
           <div
@@ -266,7 +263,7 @@ export function CoverSummary({
             style={{ border: `1px solid ${PDF_COLORS.borderGray}` }}
           >
             <p className="text-[16px] font-bold" style={{ color: PDF_COLORS.darkBlue }}>
-              4 anos
+              +7 anos
             </p>
             <p className="text-[8px] leading-tight" style={{ color: PDF_COLORS.textSecondary }}>
               de atuação
@@ -318,7 +315,7 @@ export function CoverSummary({
       >
         <p className="text-[10px] leading-relaxed" style={{ color: PDF_COLORS.textSecondary }}>
           {isExtratoOnlyContext
-            ? '"Eu tinha 9 contratos de consignado e mal sobrava dinheiro pra viver. A Credilly entrou com o processo e em 45 dias minhas parcelas caíram de R$ 2.800 pra R$ 720. Agora consigo pagar minhas contas sem sufoco."'
+            ? '"Eu tinha 9 contratos de consignado e mal sobrava dinheiro pra viver. A Resolvver entrou com o processo e em 45 dias minhas parcelas caíram de R$ 2.800 pra R$ 720. Agora consigo pagar minhas contas sem sufoco."'
             : '"Vou ser sincero: achei que era golpe. Muita gente promete e não cumpre. Mas um colega de trabalho me indicou e eu resolvi tentar. Em menos de 2 meses minhas parcelas já tinham caído no contracheque. Me arrependo de não ter procurado antes."'}
         </p>
         <p className="mt-1 text-[10px] font-semibold" style={{ color: PDF_COLORS.textDark }}>
@@ -341,11 +338,10 @@ export function CoverSummary({
             o comprometimento mensal de cada contrato, mantendo os mesmos prazos e condições gerais.
           </p>
           <p>
-            Os valores projetados neste relatório consideram uma redução de 75% no valor de
-            cada parcela, que representa a média dos resultados obtidos pela Credilly em ações
-            judiciais de revisão de consignados. Na prática, as reduções concedidas pela Justiça
-            variam entre 50% e 80%, dependendo do banco, do tipo de contrato e das condições
-            específicas de cada caso.
+            Os valores projetados neste relatório consideram uma estimativa de redução baseada
+            no histórico de resultados obtidos pela Resolvver em ações judiciais de revisão de
+            consignados. Na prática, as reduções concedidas pela Justiça variam conforme banco,
+            tipo de contrato e condições específicas de cada caso.
           </p>
         </GrayBox>
       </div>

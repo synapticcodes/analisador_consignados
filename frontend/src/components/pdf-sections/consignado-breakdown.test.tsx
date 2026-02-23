@@ -18,7 +18,7 @@ describe('ConsignadoBreakdown', () => {
     render(<ConsignadoBreakdown lines={lines} />)
 
     expect(
-      screen.getByText('Simulação por linha considerando redução de 75% na parcela mensal.')
+      screen.getByText('Simulação por linha considerando projeção de redução na parcela mensal.')
     ).toBeInTheDocument()
     expect(
       screen.getByText('Quantidade estimada de parcelas:')

@@ -60,9 +60,9 @@ describe('ResultSnapshot', () => {
     expect(screen.getByText(/Seu Diagn[óo]stico Financeiro/)).toBeInTheDocument()
     expect(screen.getByText(/Economia mensal estimada/)).toBeInTheDocument()
     expect(screen.getAllByText((content) => content.includes('540,00')).length).toBeGreaterThan(0)
-    expect(screen.getByText('+1.200')).toBeInTheDocument()
-    expect(screen.getByText('R$ 18M+')).toBeInTheDocument()
-    expect(screen.getByText('4 anos')).toBeInTheDocument()
+    expect(screen.getByText('+600 mil')).toBeInTheDocument()
+    expect(screen.getByText('R$ 1 bi+')).toBeInTheDocument()
+    expect(screen.getByText('+7 anos')).toBeInTheDocument()
     expect(screen.getByText('92%')).toBeInTheDocument()
     expect(screen.getByText(/Vou ser sincero: achei que era golpe\./)).toBeInTheDocument()
     expect(screen.getByText(/— C\.L\., servidor público federal, Brasília\/DF/)).toBeInTheDocument()
@@ -183,12 +183,18 @@ describe('ResultSnapshot', () => {
     )
 
     expect(screen.getByText(/Pr[óo]ximos Passos/)).toBeInTheDocument()
+    expect(screen.getByText('3. Negociação extrajudicial junto aos bancos')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Entramos em contato com as instituições financeiras para tentativa de negociação antes de uma ação judicial.'
+      )
+    ).toBeInTheDocument()
+    expect(screen.getByText('4. Início do processo judicial')).toBeInTheDocument()
     expect(screen.getByText(/Gloss[áa]rio/)).toBeInTheDocument()
     expect(screen.getByText(/Caso real - como funciona na prática:/)).toBeInTheDocument()
     expect(screen.getByText(/Dia 40 - Novas parcelas já refletidas no contracheque/)).toBeInTheDocument()
-    expect(screen.getByText(/Credilly Solu[çc][õo]es Financeiras Ltda/)).toBeInTheDocument()
-    expect(screen.getByText('CNPJ: XX.XXX.XXX/0001-XX')).toBeInTheDocument()
-    expect(screen.getByText('E-mail: contato@credilly.com.br')).toBeInTheDocument()
+    expect(screen.getByText('Resolvver')).toBeInTheDocument()
+    expect(screen.getByText('Email: info@resolvver.com')).toBeInTheDocument()
   })
 
   it('header aparece em todas as páginas', () => {

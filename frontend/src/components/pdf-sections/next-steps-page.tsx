@@ -29,13 +29,13 @@ export function NextStepsPage({ isExtratoOnlyContext = false }: { isExtratoOnlyC
         />
         <StepBox
           stepNumber={3}
-          title="Início do processo judicial"
-          description="Nossa equipe jurídica ingressa com a ação revisional nos juizados competentes, solicitando a redução imediata das parcelas em folha."
+          title="Negociação extrajudicial junto aos bancos"
+          description="Entramos em contato com as instituições financeiras para tentativa de negociação antes de uma ação judicial."
         />
         <StepBox
           stepNumber={4}
-          title="Levantamento junto aos bancos"
-          description="Entramos em contato com as instituições financeiras para negociar os termos da revisão e acompanhar o andamento do processo."
+          title="Início do processo judicial"
+          description="Nossa equipe jurídica ingressa com a ação revisional nos juizados competentes, solicitando a redução imediata das parcelas em folha."
         />
         <StepBox
           stepNumber={5}
@@ -59,7 +59,7 @@ export function NextStepsPage({ isExtratoOnlyContext = false }: { isExtratoOnlyC
           Caso real - como funciona na prática:
         </p>
         <ul className="mt-1 space-y-0.5 text-[9px] leading-relaxed" style={{ color: PDF_COLORS.textSecondary }}>
-          <li>Dia 1 - Cliente assinou o contrato com a Credilly</li>
+          <li>Dia 1 - Cliente assinou o contrato com a Resolvver</li>
           <li>Dia 7 - Ações revisionais protocoladas nos juizados</li>
           <li>Dia 18 - Liminar concedida para 4 dos 9 contratos</li>
           <li>Dia 35 - Liminares concedidas para os demais contratos</li>
@@ -143,7 +143,7 @@ export function NextStepsPage({ isExtratoOnlyContext = false }: { isExtratoOnlyC
             constitui aconselhamento financeiro, jurídico ou fiscal. Os valores e
             projeções apresentados são estimativas baseadas nas
             informações fornecidas pelo cliente e no histórico de
-            resultados da Credilly.
+            resultados da Resolvver.
           </p>
           <p className="mb-1">
             Resultados passados não garantem resultados futuros. As condições
@@ -153,7 +153,7 @@ export function NextStepsPage({ isExtratoOnlyContext = false }: { isExtratoOnlyC
           </p>
           <p>
             Ao prosseguir, o cliente declara ciência de que os valores finais podem
-            diferir das projeções e que a Credilly atuará com diligência
+            diferir das projeções e que a Resolvver atuará com diligência
             para obter os melhores resultados possíveis dentro das
             possibilidades legais.
           </p>
@@ -171,11 +171,8 @@ export function NextStepsPage({ isExtratoOnlyContext = false }: { isExtratoOnlyC
             Identificação da empresa
           </p>
           <div className="mt-1 space-y-0.5 text-[9px]" style={{ color: PDF_COLORS.textSecondary }}>
-            <p>Credilly Soluções Financeiras Ltda.</p>
-            <p>CNPJ: XX.XXX.XXX/0001-XX</p>
-            <p>Endereço: Rua tal, nº tal, São Paulo/SP</p>
-            <p>Telefone: (11) XXXX-XXXX</p>
-            <p>E-mail: contato@credilly.com.br</p>
+            <p>Resolvver</p>
+            <p>Email: info@resolvver.com</p>
           </div>
         </div>
       </div>

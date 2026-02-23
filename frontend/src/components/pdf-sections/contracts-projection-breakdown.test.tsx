@@ -47,7 +47,7 @@ describe('ContractsProjectionBreakdown', () => {
 
     expect(screen.getByText('Projeção dos Contratos (Extrato)')).toBeInTheDocument()
     expect(
-      screen.getByText('Simulação por contrato considerando redução de 75% na parcela mensal.')
+      screen.getByText('Simulação por contrato considerando projeção de redução na parcela mensal.')
     ).toBeInTheDocument()
     expect(screen.getByText('Total mensal dos contratos')).toBeInTheDocument()
     expect(screen.getAllByText((content) => content.includes('300,00')).length).toBeGreaterThan(0)

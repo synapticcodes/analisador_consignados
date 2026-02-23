@@ -39,7 +39,7 @@ export function DetailedBreakdownPage({
           <p>
             <strong>Parcela atual</strong> é o valor descontado hoje em folha.{' '}
             <strong>Nova parcela</strong> é o valor projetado após a
-            renegociação (redução de 75%).{' '}
+            renegociação.{' '}
             <strong>Redução</strong> é a diferença mensal.{' '}
             <strong>Saldo restante</strong> é parcela atual x parcelas estimadas.
           </p>
@@ -177,9 +177,8 @@ export function DetailedBreakdownPage({
           </tbody>
         </table>
         <p className="mt-1 text-[8px]" style={{ color: PDF_COLORS.mediumGray }}>
-          * Nova parcela calculada com redução de 75% sobre o valor atual. Resultados reais
-          podem variar dentro da faixa de 50% a 80% conforme decisões judiciais obtidas em
-          casos semelhantes.
+          * Nova parcela calculada com base na projeção de revisão contratual. Resultados reais
+          podem variar conforme decisões judiciais obtidas em casos semelhantes.
         </p>
       </div>
 
@@ -187,10 +186,9 @@ export function DetailedBreakdownPage({
       <div className="mt-auto">
         <GrayBox title="Transparência sobre os cálculos">
           <p className="mb-1">
-            A projeção de "nova parcela" considera uma redução
-            de 75% sobre o valor atual de cada parcela. Esse percentual reflete o histórico de
-            resultados obtidos pela Credilly em ações judiciais de revisão de
-            contratos consignados.
+            A projeção de "nova parcela" considera uma estimativa de redução sobre o valor atual
+            de cada parcela. Essa estimativa reflete o histórico de resultados obtidos pela
+            Resolvver em ações judiciais de revisão de contratos consignados.
           </p>
           <p>
             Os resultados reais podem variar conforme o banco, o tipo de contrato e as
