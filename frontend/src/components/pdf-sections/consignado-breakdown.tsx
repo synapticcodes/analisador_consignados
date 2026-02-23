@@ -72,10 +72,10 @@ function ConsolidatedSummaryBlock({ consolidatedSummary }: { consolidatedSummary
           </span>
         </p>
       </div>
-      {consolidatedSummary.linhasSemPrazo > 0 && (
+      {(consolidatedSummary.linhasPrazoEstimado ?? 0) > 0 && (
         <p className="mt-2 text-[11px] text-slate-500">
-          Linhas sem prazo identificado: {consolidatedSummary.linhasSemPrazo}. Totais finais
-          de contrato consideram apenas linhas com prazo.
+          Linhas com prazo estimado: {consolidatedSummary.linhasPrazoEstimado ?? 0}. Totais finais
+          projetados consideram essa estimativa quando o documento não informa prazo.
         </p>
       )}
     </div>

@@ -124,6 +124,7 @@ export function inferInstitution(line: ConsignadoLineDetail): string {
 // ---------------------------------------------------------------------------
 
 const REDUCED_PERCENT = 25
+const DEFAULT_ESTIMATED_PRAZO = 84
 
 export function parsePrazo(line: ConsignadoLineDetail): number | null {
   if (typeof line.prazo === 'number' && Number.isFinite(line.prazo) && line.prazo > 0) {
@@ -153,6 +154,7 @@ export type ConsolidatedSummary = {
   totalParcelasMensaisReducaoCent: number
   economiaMensalParcelasCent: number
   linhasSemPrazo: number
+  linhasPrazoEstimado?: number
 }
 
 export function buildConsolidatedSummary(lines: ConsignadoLineDetail[]): ConsolidatedSummary {
@@ -161,6 +163,7 @@ export function buildConsolidatedSummary(lines: ConsignadoLineDetail[]): Consoli
   let totalParcelasMensaisAtuaisCent = 0
   let totalParcelasMensaisReducaoCent = 0
   let linhasSemPrazo = 0
+  let linhasPrazoEstimado = 0
 
   for (const line of lines) {
     const parcelaAtualCent = line.valor_cent
@@ -168,10 +171,11 @@ export function buildConsolidatedSummary(lines: ConsignadoLineDetail[]): Consoli
     totalParcelasMensaisAtuaisCent += parcelaAtualCent
     totalParcelasMensaisReducaoCent += parcelaReducaoCent
 
-    const prazo = parsePrazo(line)
-    if (!prazo) {
+    const prazoOriginal = parsePrazo(line)
+    const prazo = prazoOriginal ?? DEFAULT_ESTIMATED_PRAZO
+    if (!prazoOriginal) {
       linhasSemPrazo += 1
-      continue
+      linhasPrazoEstimado += 1
     }
 
     totalAtualFinalCent += parcelaAtualCent * prazo
@@ -187,7 +191,29 @@ export function buildConsolidatedSummary(lines: ConsignadoLineDetail[]): Consoli
     economiaMensalParcelasCent:
       totalParcelasMensaisAtuaisCent - totalParcelasMensaisReducaoCent,
     linhasSemPrazo,
+    linhasPrazoEstimado,
   }
+}
+
+function inferContractPrazo(contract: LoanContractDetail): { prazo: number; estimado: boolean } {
+  if (
+    typeof contract.parcelas_restantes === 'number' &&
+    Number.isFinite(contract.parcelas_restantes) &&
+    contract.parcelas_restantes > 0
+  ) {
+    return { prazo: Math.floor(contract.parcelas_restantes), estimado: false }
+  }
+
+  const parcela = contract.parcela_cent ?? 0
+  const valorTotal = contract.valor_total_cent ?? 0
+  if (parcela > 0 && valorTotal > 0) {
+    const razao = Math.round(valorTotal / parcela)
+    if (razao > 0 && razao <= 120) {
+      return { prazo: razao, estimado: true }
+    }
+  }
+
+  return { prazo: DEFAULT_ESTIMATED_PRAZO, estimado: true }
 }
 
 export function buildConsolidatedSummaryFromContracts(
@@ -198,6 +224,7 @@ export function buildConsolidatedSummaryFromContracts(
   let totalParcelasMensaisAtuaisCent = 0
   let totalParcelasMensaisReducaoCent = 0
   let linhasSemPrazo = 0
+  let linhasPrazoEstimado = 0
 
   for (const contract of contracts) {
     const parcelaAtualCent = contract.parcela_cent ?? 0
@@ -205,16 +232,10 @@ export function buildConsolidatedSummaryFromContracts(
     totalParcelasMensaisAtuaisCent += parcelaAtualCent
     totalParcelasMensaisReducaoCent += parcelaReducaoCent
 
-    const prazo =
-      typeof contract.parcelas_restantes === 'number' &&
-      Number.isFinite(contract.parcelas_restantes) &&
-      contract.parcelas_restantes > 0
-        ? Math.floor(contract.parcelas_restantes)
-        : null
-
-    if (!prazo) {
+    const { prazo, estimado } = inferContractPrazo(contract)
+    if (estimado) {
       linhasSemPrazo += 1
-      continue
+      linhasPrazoEstimado += 1
     }
 
     totalAtualFinalCent += parcelaAtualCent * prazo
@@ -230,6 +251,7 @@ export function buildConsolidatedSummaryFromContracts(
     economiaMensalParcelasCent:
       totalParcelasMensaisAtuaisCent - totalParcelasMensaisReducaoCent,
     linhasSemPrazo,
+    linhasPrazoEstimado,
   }
 }
 

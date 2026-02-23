@@ -355,7 +355,7 @@ describe('ResultSnapshot', () => {
     expect(screen.queryByText(/— C\.L\., servidor público federal, Brasília\/DF/)).not.toBeInTheDocument()
   })
 
-  it('oculta cards de totais finais na página 2 quando nenhuma linha tem prazo', () => {
+  it('exibe cards de totais finais com prazo estimado quando nenhuma linha informa prazo', () => {
     render(
       <ResultSnapshot
         result={buildResult({
@@ -382,11 +382,11 @@ describe('ResultSnapshot', () => {
       />
     )
 
-    expect(screen.queryByText('Total mantendo contratos')).not.toBeInTheDocument()
-    expect(screen.queryByText('Total com nossos serviços')).not.toBeInTheDocument()
-    expect(screen.queryByText('Economia total projetada')).not.toBeInTheDocument()
+    expect(screen.getByText('Total mantendo contratos')).toBeInTheDocument()
+    expect(screen.getByText('Total com nossos serviços')).toBeInTheDocument()
+    expect(screen.getByText('Economia total projetada')).toBeInTheDocument()
     expect(
-      screen.getByText(/Totais finais n[ãa]o exibidos porque o documento n[ãa]o informa prazo/)
+      screen.getByText(/2 contrato\(s\)\/linha\(s\) com prazo estimado por ausência de prazo no documento/)
     ).toBeInTheDocument()
   })
 })

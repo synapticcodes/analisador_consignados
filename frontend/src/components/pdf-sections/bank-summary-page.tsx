@@ -251,10 +251,10 @@ export function BankSummaryPage({ bankGroups, consolidatedSummary }: BankSummary
         </div>
       )}
 
-      {consolidatedSummary.linhasSemPrazo > 0 && (
+      {(consolidatedSummary.linhasPrazoEstimado ?? 0) > 0 && (
         <p className="mt-2 text-[8px]" style={{ color: PDF_COLORS.mediumGray }}>
-          * {consolidatedSummary.linhasSemPrazo} linha(s) sem prazo identificado.
-          Totais finais consideram apenas linhas com prazo.
+          * {(consolidatedSummary.linhasPrazoEstimado ?? 0)} contrato(s)/linha(s) com prazo
+          estimado por ausência de prazo no documento.
         </p>
       )}
     </section>
