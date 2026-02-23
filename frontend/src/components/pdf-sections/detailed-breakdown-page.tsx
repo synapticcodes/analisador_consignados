@@ -14,6 +14,11 @@ export function DetailedBreakdownPage({
   const totalAtualCent = loans.reduce((s, l) => s + l.parcelaAtualCent, 0)
   const totalNovaCent = loans.reduce((s, l) => s + l.novaParcelaCent, 0)
   const totalReducaoCent = loans.reduce((s, l) => s + l.reducaoCent, 0)
+  const totalParcelasEst = loans.reduce((s, l) => s + (l.parcelasEst ?? 0), 0)
+  const hasParcelasEstTotal = loans.some((loan) => loan.parcelasEst !== null)
+  const totalSaldoRestanteCent = loans.reduce((s, l) => s + (l.saldoRestanteCent ?? 0), 0)
+  const hasSaldoRestanteTotal = loans.some((loan) => loan.saldoRestanteCent !== null)
+  const linhasSemPrazo = loans.filter((loan) => loan.parcelasEst === null).length
   const totalEconomiaContratoCent = loans.reduce(
     (s, l) => s + (l.economiaTotalContratoCent ?? 0),
     0
@@ -159,13 +164,13 @@ export function DetailedBreakdownPage({
                 className="px-1.5 py-1.5 text-right"
                 style={{ borderBottom: `1px solid ${PDF_COLORS.borderGray}` }}
               >
-                -
+                {hasParcelasEstTotal ? totalParcelasEst : '-'}
               </td>
               <td
                 className="px-1.5 py-1.5 text-right"
                 style={{ borderBottom: `1px solid ${PDF_COLORS.borderGray}` }}
               >
-                -
+                {hasSaldoRestanteTotal ? formatCurrency(totalSaldoRestanteCent) : '-'}
               </td>
               <td
                 className="px-1.5 py-1.5 text-right"
@@ -180,6 +185,12 @@ export function DetailedBreakdownPage({
           * Nova parcela calculada com base na projeção de revisão contratual. Resultados reais
           podem variar conforme decisões judiciais obtidas em casos semelhantes.
         </p>
+        {linhasSemPrazo > 0 && (
+          <p className="mt-1 text-[8px]" style={{ color: PDF_COLORS.mediumGray }}>
+            * Totais de parcelas estimadas e saldo restante são parciais: {linhasSemPrazo}{' '}
+            contrato(s) sem prazo no documento.
+          </p>
+        )}
       </div>
 
       {/* Gray transparency box */}

@@ -41,6 +41,8 @@ import {
   formatCompetencia,
 } from '@/types/api'
 
+const MIN_OFFER_QUALIFICATION_CENT = 1621 * 100
+
 // =============================================
 // Output Card Component
 // =============================================
@@ -123,7 +125,17 @@ function buildWhatsappMessage(offers: FinalResultResponse['offers']) {
       offer.kind === 'SUPER' && offer.first_payment_days === 1
         ? '1ª parcela amanhã'
         : `1ª parcela em ${offer.first_payment_days} ${dayLabel}`
-    const details = `${offer.installment_count}x de ${formatCurrency(offer.installment_value_cent)} — ${firstPayment}`
+    const entryDetails =
+      offer.entry_value_cent !== undefined && offer.entry_value_cent !== null
+        ? `Entrada de ${formatCurrency(offer.entry_value_cent)} ${
+            offer.entry_due_days === 1
+              ? 'amanhã'
+              : offer.entry_due_days && offer.entry_due_days > 1
+                ? `em ${offer.entry_due_days} dias`
+                : 'no ato'
+          } + `
+        : ''
+    const details = `${entryDetails}${offer.installment_count}x de ${formatCurrency(offer.installment_value_cent)} — ${firstPayment}`
     return [label, details].filter(Boolean).join('\n')
   })
 
@@ -132,6 +144,27 @@ function buildWhatsappMessage(offers: FinalResultResponse['offers']) {
     'Qual faz mais sentido pra você?'
 
   return [header, ...offerBlocks, closing].join('\n\n')
+}
+
+function getBeneficioLiquidoCent(result: FinalResultResponse): number | null {
+  const baseCalculo = result.inss_margin?.base_calculo_cent ?? null
+  const totalComprometido = result.inss_margin?.total_comprometido_cent ?? null
+  if (baseCalculo === null || totalComprometido === null) return null
+  const value = baseCalculo - totalComprometido
+  return value > 0 ? value : null
+}
+
+function getOfferQualificationBaseCent(result: FinalResultResponse): number | null {
+  const salarioLiquidoCent =
+    result.salario_liquido_cent !== null && result.salario_liquido_cent > 0
+      ? result.salario_liquido_cent
+      : null
+  const beneficioLiquidoCent = getBeneficioLiquidoCent(result)
+
+  if (salarioLiquidoCent !== null && beneficioLiquidoCent !== null) {
+    return salarioLiquidoCent + beneficioLiquidoCent
+  }
+  return salarioLiquidoCent ?? beneficioLiquidoCent
 }
 
 // =============================================
@@ -236,8 +269,13 @@ export default function JobResultPage() {
   const hasAlerts = result.alerts && result.alerts.length > 0
   const hasOffers = result.offers && result.offers.length > 0
   const singleOffer = hasOffers && result.offers!.length === 1
+  const qualificationBaseCent = getOfferQualificationBaseCent(result)
+  const isLeadNotQualifiedForOffers =
+    qualificationBaseCent !== null &&
+    qualificationBaseCent < MIN_OFFER_QUALIFICATION_CENT
   const whatsappMessage = buildWhatsappMessage(result.offers)
-  const shouldShowWhatsappMessage = hasOffers && whatsappMessage.length > 0
+  const shouldShowWhatsappMessage =
+    hasOffers && whatsappMessage.length > 0 && !isLeadNotQualifiedForOffers
 
   const baseFileName = `diagnostico-${jobId}-${fileDate}`
 
@@ -561,9 +599,11 @@ export default function JobResultPage() {
                         offer.entry_value_cent !== null && (
                           <p>
                             Entrada: {formatCurrency(offer.entry_value_cent)}{' '}
-                            {offer.entry_due_days
-                              ? `em ${offer.entry_due_days} dias`
-                              : 'no ato'}
+                            {offer.entry_due_days === 1
+                              ? 'amanhã'
+                              : offer.entry_due_days && offer.entry_due_days > 1
+                                ? `em ${offer.entry_due_days} dias`
+                                : 'no ato'}
                           </p>
                         )}
                       <p>
@@ -579,6 +619,27 @@ export default function JobResultPage() {
               ))}
             </div>
           </div>
+        )}
+
+        {!hasOffers && isLeadNotQualifiedForOffers && (
+          <Card className="mb-8 border-red-200 bg-red-50">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <Badge variant="error">Não qualificado</Badge>
+                <CardTitle className="text-base font-semibold text-red-900">
+                  Ofertas do Produto
+                </CardTitle>
+              </div>
+              <CardDescription className="text-red-800">
+                Este lead não se qualifica para nossos serviços.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-red-900">
+                A base financeira para elegibilidade ficou abaixo de {formatCurrency(MIN_OFFER_QUALIFICATION_CENT)}.
+              </p>
+            </CardContent>
+          </Card>
         )}
 
         {/* WhatsApp Message */}

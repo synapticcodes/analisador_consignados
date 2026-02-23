@@ -44,6 +44,7 @@ DUE_RANGES_BY_FAIXA: dict[str, dict[str, tuple[int, int]]] = {
 }
 
 DUE_RANGE_FAIXA_C = (10, 15)
+FIRST_PAYMENT_DAYS_FAIXA_C = 30
 REDUZIDA_TARGET_DAYS = 10
 
 TOTAL_VARIATION_BY_KIND: dict[str, int] = {
@@ -368,12 +369,7 @@ def generate_offers(
             diff_installment=0,
             diff_total=0,
         )
-        due_min, due_max = DUE_RANGE_FAIXA_C
-        max_allowed = _max_allowed_days(due_min, due_max, selected.installment_count)
-        due_mid = due_min + (due_max - due_min) // 2
-        first_payment_days = min(max_allowed, due_mid)
-        if first_payment_days < due_min:
-            first_payment_days = due_min
+        first_payment_days = FIRST_PAYMENT_DAYS_FAIXA_C
 
         entry_percent = random.Random(f"{job_id}:entry").randint(
             ENTRY_PERCENT_RANGE_FAIXA_C[0], ENTRY_PERCENT_RANGE_FAIXA_C[1]
@@ -385,8 +381,9 @@ def generate_offers(
         method_label = "PIX" if payment_method == "PIX" else "boleto"
         installment_label = _format_brl_from_cents(selected.installment_value_cent)
         entry_label = _format_brl_from_cents(entry_value_cent)
+        entry_due_label = "amanhã" if entry_due_days == 1 else f"em {entry_due_days} dias"
         text = (
-            f"Entrada de {entry_label} em {entry_due_days} dia(s) + "
+            f"Entrada de {entry_label} {entry_due_label} + "
             f"{selected.installment_count}x de {installment_label} no {method_label}, "
             f"1ª parcela em {first_payment_days} dias"
         )

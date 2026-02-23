@@ -40,6 +40,11 @@ from app.services.extractors import (
 from app.services.llm_client import LLMClient, MockLLMClient
 from app.services.ocr_service import OCRService
 from app.services.offers import generate_offers
+from app.services.offer_salary_base import (
+    MIN_OFFER_QUALIFICATION_CENT,
+    is_offer_qualified,
+    resolve_offer_salary_cent,
+)
 from app.services.pdf_extraction import PDFExtractionService
 from app.services.router import RouterService
 from app.workers.celery_app import celery_app
@@ -726,11 +731,30 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
             # 6b. Gerar ofertas do produto (baseado no salário líquido)
             offers_alerts: list[str] = []
             offers_payload: list[Offer] = []
-            salary_cent = (
-                compute_result.salario_liquido_cent
-                if compute_result.salario_liquido_cent is not None
-                else job.renda_mensal_declarada_cent
+            inss_margin_data = inss_margin_payload[0] if inss_margin_payload else None
+            salary_cent, salary_source = resolve_offer_salary_cent(
+                compute_salario_liquido_cent=compute_result.salario_liquido_cent,
+                renda_mensal_declarada_cent=job.renda_mensal_declarada_cent,
+                perfil_dados=consolidated.perfil_dados,
+                inss_margin_data=inss_margin_data,
             )
+            if salary_source == "BENEFICIO_LIQUIDO_EXTRATO":
+                offers_alerts.append(
+                    "Ofertas geradas com base no benefício líquido estimado do extrato"
+                )
+            is_qualified, qualification_base_cent, qualification_source = is_offer_qualified(
+                compute_salario_liquido_cent=compute_result.salario_liquido_cent,
+                perfil_dados=consolidated.perfil_dados,
+                inss_margin_data=inss_margin_data,
+            )
+            if not is_qualified:
+                base_label = (
+                    f"{qualification_base_cent / 100:.2f}" if qualification_base_cent is not None else "--"
+                ).replace(".", ",")
+                min_label = f"{MIN_OFFER_QUALIFICATION_CENT / 100:.2f}".replace(".", ",")
+                offers_alerts.append(
+                    f"Lead não qualificado para ofertas: base {base_label} (< {min_label}) via {qualification_source}"
+                )
 
             product = None
             if job.product_id:
@@ -739,12 +763,13 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                 )
                 product = product_result.scalar_one_or_none()
 
-            if product:
-                offers, offers_alerts = generate_offers(
+            if product and is_qualified:
+                offers, generated_alerts = generate_offers(
                     job_id=job_id,
                     salary_cent=salary_cent,
                     product=product,
                 )
+                offers_alerts.extend(generated_alerts)
                 for offer in offers:
                     offers_payload.append(
                         Offer(
@@ -764,7 +789,7 @@ async def _process_job_async(job_id: UUID, task: Task) -> dict:
                             text=offer.text,
                         )
                     )
-            else:
+            elif not product:
                 offers_alerts.append("Ofertas não geradas: produto não informado")
 
             # 7. Persistir resultado final
