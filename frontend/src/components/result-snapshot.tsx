@@ -7,6 +7,7 @@ import { NextStepsPage } from '@/components/pdf-sections/next-steps-page'
 import { PdfPageWrapper } from '@/components/pdf-sections/pdf-shared'
 import {
   buildConsolidatedSummary,
+  buildConsolidatedSummaryFromContracts,
   buildDetailedLoans,
   groupByBank,
 } from '@/components/pdf-sections/pdf-utils'
@@ -73,6 +74,9 @@ const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
     const consolidatedSummary = buildConsolidatedSummary(
       consignadoLines.length > 0 ? consignadoLines : []
     )
+    const consolidatedSummaryFromContracts = buildConsolidatedSummaryFromContracts(activeContracts)
+    const summaryForBankPage =
+      consignadoLines.length > 0 ? consolidatedSummary : consolidatedSummaryFromContracts
 
     return (
       <div ref={ref}>
@@ -101,7 +105,7 @@ const ResultSnapshot = forwardRef<HTMLDivElement, ResultSnapshotProps>(
         >
           <BankSummaryPage
             bankGroups={bankGroups}
-            consolidatedSummary={consolidatedSummary}
+            consolidatedSummary={summaryForBankPage}
           />
         </PdfPageWrapper>
 

@@ -190,6 +190,49 @@ export function buildConsolidatedSummary(lines: ConsignadoLineDetail[]): Consoli
   }
 }
 
+export function buildConsolidatedSummaryFromContracts(
+  contracts: LoanContractDetail[]
+): ConsolidatedSummary {
+  let totalAtualFinalCent = 0
+  let totalComReducaoFinalCent = 0
+  let totalParcelasMensaisAtuaisCent = 0
+  let totalParcelasMensaisReducaoCent = 0
+  let linhasSemPrazo = 0
+
+  for (const contract of contracts) {
+    const parcelaAtualCent = contract.parcela_cent ?? 0
+    const parcelaReducaoCent = computeReducedInstallment(parcelaAtualCent)
+    totalParcelasMensaisAtuaisCent += parcelaAtualCent
+    totalParcelasMensaisReducaoCent += parcelaReducaoCent
+
+    const prazo =
+      typeof contract.parcelas_restantes === 'number' &&
+      Number.isFinite(contract.parcelas_restantes) &&
+      contract.parcelas_restantes > 0
+        ? Math.floor(contract.parcelas_restantes)
+        : null
+
+    if (!prazo) {
+      linhasSemPrazo += 1
+      continue
+    }
+
+    totalAtualFinalCent += parcelaAtualCent * prazo
+    totalComReducaoFinalCent += parcelaReducaoCent * prazo
+  }
+
+  return {
+    totalAtualFinalCent,
+    totalComReducaoFinalCent,
+    economiaTotalFinalCent: totalAtualFinalCent - totalComReducaoFinalCent,
+    totalParcelasMensaisAtuaisCent,
+    totalParcelasMensaisReducaoCent,
+    economiaMensalParcelasCent:
+      totalParcelasMensaisAtuaisCent - totalParcelasMensaisReducaoCent,
+    linhasSemPrazo,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // New: groupByBank — groups consignado_lines (or loan_contracts fallback)
 // ---------------------------------------------------------------------------

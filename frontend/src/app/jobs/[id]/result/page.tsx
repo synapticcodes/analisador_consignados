@@ -34,7 +34,7 @@ import { Badge } from '@/components/ui/badge'
 import ResultSnapshot from '@/components/result-snapshot'
 import LegacyResultSnapshot from '@/components/result-snapshot-legacy'
 import { getJobResult } from '@/lib/api'
-import { getSnapshotPages, resolvePdfExportTargets } from '@/lib/pdf-export'
+import { resolvePdfExportTargets } from '@/lib/pdf-export'
 import {
   type FinalResultResponse,
   formatCurrency,
@@ -147,7 +147,7 @@ export default function JobResultPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [clientName, setClientName] = useState('')
   const [clientCpf, setClientCpf] = useState('')
-  const [exporting, setExporting] = useState<'pdf' | 'png' | null>(null)
+  const [exporting, setExporting] = useState<'pdf' | null>(null)
   const snapshotRef = useRef<HTMLDivElement | null>(null)
   const legacySnapshotRef = useRef<HTMLDivElement | null>(null)
 
@@ -255,36 +255,6 @@ export default function JobResultPage() {
       cacheBust: true,
       pixelRatio: 2,
     })
-  }
-
-  const handleExportPng = async () => {
-    const snapshot = ensureSnapshot()
-    if (!snapshot) return
-
-    setExporting('png')
-    try {
-      const page = getSnapshotPages(snapshot)[0]
-      if (!page) {
-        throw new Error('Página de snapshot não encontrada')
-      }
-      const startedAt = performance.now()
-      const dataUrl = await captureElementPng(page)
-
-      const link = document.createElement('a')
-      link.href = dataUrl
-      link.download = `${baseFileName}.png`
-      link.click()
-      console.info('export_png', {
-        elapsed_ms: Math.round(performance.now() - startedAt),
-        pages: 1,
-      })
-      toast.success('PNG gerado com sucesso')
-    } catch (error) {
-      console.error('Error exporting PNG:', error)
-      toast.error('Erro ao gerar PNG')
-    } finally {
-      setExporting(null)
-    }
   }
 
   const handleExportPdf = async () => {
@@ -407,7 +377,7 @@ export default function JobResultPage() {
               Exportar diagnóstico
             </CardTitle>
             <CardDescription>
-              Gere o PDF ou a imagem para compartilhar com o cliente
+              Gere o PDF para compartilhar com o cliente
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -439,14 +409,6 @@ export default function JobResultPage() {
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <Button onClick={handleExportPdf} disabled={exporting !== null}>
                 {exporting === 'pdf' ? 'Gerando PDF...' : 'Baixar PDF'}
-              </Button>
-              <Button
-                onClick={handleExportPng}
-                variant="secondary"
-                disabled={exporting !== null}
-                className="bg-green-800 hover:bg-green-900 focus-visible:ring-green-800"
-              >
-                {exporting === 'png' ? 'Gerando PNG...' : 'Baixar PNG'}
               </Button>
               <span className="text-xs text-gray-500">
                 Data do relatório: {dateLabel}

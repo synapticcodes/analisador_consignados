@@ -257,6 +257,9 @@ describe('ResultSnapshot', () => {
 
     expect(screen.getAllByText('Banco A').length).toBeGreaterThan(0)
     expect(screen.getByText('Resumo por Banco')).toBeInTheDocument()
+    expect(screen.getByText('Total mantendo contratos')).toBeInTheDocument()
+    expect(screen.getByText('Total com nossos serviços')).toBeInTheDocument()
+    expect(screen.getByText('Economia total projetada')).toBeInTheDocument()
   })
 
   it('não inclui contratos RMC/RCC na listagem de bancos', () => {
