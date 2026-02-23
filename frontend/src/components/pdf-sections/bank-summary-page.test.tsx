@@ -47,6 +47,7 @@ describe('BankSummaryPage', () => {
     expect(screen.getByText(/Com a revisão judicial, a projeção é de/)).toBeInTheDocument()
     expect(screen.getByText(/Isso representa uma economia de/)).toBeInTheDocument()
     expect(screen.getByText(/x ~1000 meses =/)).toBeInTheDocument()
+    expect(screen.getByText('15,7%')).toBeInTheDocument()
   })
 
   it('oculta os 3 cards e o disclaimer quando não há base de prazo para projeção final', () => {

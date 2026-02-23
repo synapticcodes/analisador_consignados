@@ -113,10 +113,17 @@ function buildWhatsappMessage(offers: FinalResultResponse['offers']) {
   if (orderedOffers.length === 0) return ''
 
   const headerCount = orderedOffers.length
+  const hasEntry = orderedOffers.some(
+    (offer) => offer.entry_value_cent !== undefined && offer.entry_value_cent !== null
+  )
   const header =
-    headerCount === 1
-      ? 'Separei 1 condição para você, toda no boleto e sem juros:'
-      : `Separei ${headerCount} condições para você, todas no boleto e sem juros:`
+    hasEntry
+      ? headerCount === 1
+        ? 'Separei 1 condição para você, com entrada via PIX e parcelas no boleto, sem juros:'
+        : `Separei ${headerCount} condições para você, com entrada via PIX quando aplicável e parcelas no boleto, sem juros:`
+      : headerCount === 1
+        ? 'Separei 1 condição para você, toda no boleto e sem juros:'
+        : `Separei ${headerCount} condições para você, todas no boleto e sem juros:`
 
   const offerBlocks = orderedOffers.map((offer, index) => {
     const label = labels[index] ?? ''
@@ -127,7 +134,7 @@ function buildWhatsappMessage(offers: FinalResultResponse['offers']) {
         : `1ª parcela em ${offer.first_payment_days} ${dayLabel}`
     const entryDetails =
       offer.entry_value_cent !== undefined && offer.entry_value_cent !== null
-        ? `Entrada de ${formatCurrency(offer.entry_value_cent)} ${
+        ? `Entrada de ${formatCurrency(offer.entry_value_cent)} via PIX ${
             offer.entry_due_days === 1
               ? 'amanhã'
               : offer.entry_due_days && offer.entry_due_days > 1
@@ -135,7 +142,7 @@ function buildWhatsappMessage(offers: FinalResultResponse['offers']) {
                 : 'no ato'
           } + `
         : ''
-    const details = `${entryDetails}${offer.installment_count}x de ${formatCurrency(offer.installment_value_cent)} — ${firstPayment}`
+    const details = `${entryDetails}${offer.installment_count}x de ${formatCurrency(offer.installment_value_cent)} no boleto — ${firstPayment}`
     return [label, details].filter(Boolean).join('\n')
   })
 

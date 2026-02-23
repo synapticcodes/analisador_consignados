@@ -65,6 +65,8 @@ MAX_INSTALLMENTS_FAIXA_A = 36
 MAX_INSTALLMENTS_FAIXA_B = 18
 ALLOWED_PAYMENT_METHODS = {"PIX", "BOLETO"}
 SUPER_ALLOWED_INSTALLMENTS_FAIXA_C = {6, 8}
+DEFAULT_INSTALLMENT_PAYMENT_METHOD = "BOLETO"
+FAIXA_C_ENTRY_PAYMENT_LABEL = "PIX"
 
 
 @dataclass
@@ -330,11 +332,6 @@ def generate_offers(
         alerts.append("Ofertas não geradas: salário líquido indisponível")
         return [], alerts
 
-    payment_methods = _normalize_payment_methods(product.payment_methods or [])
-    if not payment_methods:
-        alerts.append("Ofertas não geradas: formas de pagamento inválidas")
-        return [], alerts
-
     if not product.installments:
         alerts.append("Ofertas não geradas: parcelamentos inválidos")
         return [], alerts
@@ -377,13 +374,13 @@ def generate_offers(
         entry_value_cent = (salary_cent * entry_percent) // 100
         entry_due_days = 1
 
-        payment_method = random.Random(f"{job_id}:single:payment").choice(payment_methods)
-        method_label = "PIX" if payment_method == "PIX" else "boleto"
+        payment_method = DEFAULT_INSTALLMENT_PAYMENT_METHOD
+        method_label = "boleto"
         installment_label = _format_brl_from_cents(selected.installment_value_cent)
         entry_label = _format_brl_from_cents(entry_value_cent)
         entry_due_label = "amanhã" if entry_due_days == 1 else f"em {entry_due_days} dias"
         text = (
-            f"Entrada de {entry_label} {entry_due_label} + "
+            f"Entrada de {entry_label} via {FAIXA_C_ENTRY_PAYMENT_LABEL} {entry_due_label} + "
             f"{selected.installment_count}x de {installment_label} no {method_label}, "
             f"1ª parcela em {first_payment_days} dias"
         )
@@ -499,7 +496,7 @@ def generate_offers(
         selected = selected_by_kind.get(kind)
         if not selected:
             continue
-        payment_method = random.Random(f"{job_id}:{kind}:payment").choice(payment_methods)
+        payment_method = DEFAULT_INSTALLMENT_PAYMENT_METHOD
         first_payment_days = days_by_kind.get(kind)
         if first_payment_days is None:
             first_payment_days = random.Random(f"{job_id}:{kind}:days").choice(

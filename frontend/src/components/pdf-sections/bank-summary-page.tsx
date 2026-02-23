@@ -12,6 +12,13 @@ export function BankSummaryPage({ bankGroups, consolidatedSummary }: BankSummary
   const totalNovaParcelaCent = bankGroups.reduce((s, g) => s + g.novaParcelaCent, 0)
   const totalEconomiaCent = bankGroups.reduce((s, g) => s + g.economiaCent, 0)
   const totalContratos = bankGroups.reduce((s, g) => s + g.contratos, 0)
+  const totalPercentSalario = (() => {
+    const percents = bankGroups
+      .map((group) => group.percentSalario)
+      .filter((value): value is number => value !== null)
+    if (percents.length === 0) return null
+    return percents.reduce((sum, value) => sum + value, 0)
+  })()
   const hasProjectedTotals =
     consolidatedSummary.totalAtualFinalCent > 0 ||
     consolidatedSummary.totalComReducaoFinalCent > 0 ||
@@ -131,7 +138,7 @@ export function BankSummaryPage({ bankGroups, consolidatedSummary }: BankSummary
                 className="px-2 py-1.5 text-right"
                 style={{ borderBottom: `1px solid ${PDF_COLORS.borderGray}` }}
               >
-                -
+                {formatPercent(totalPercentSalario)}
               </td>
             </tr>
           </tbody>
